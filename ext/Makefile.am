@@ -418,6 +418,7 @@ SUBDIRS=\
 	$(LV2_DIR) \
 	$(LIBFAME_DIR) \
 	$(LIBMMS_DIR) \
+	$(MIR_DIR) \
 	$(MODPLUG_DIR) \
 	$(MPEG2ENC_DIR) \
 	$(MPG123_DIR) \
