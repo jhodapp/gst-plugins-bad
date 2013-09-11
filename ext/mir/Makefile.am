@@ -6,7 +6,6 @@ libgstmirsink_la_CFLAGS = $(GST_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) \
                           -I../../gst-libs/
 libgstmirsink_la_LIBADD = $(GST_PLUGINS_BASE_LIBS) \
                                -lgstvideo-$(GST_API_VERSION) \
-                               -lubuntu_application_api \
                                $(top_builddir)/gst-libs/gst/mir/libgstmiralloc-$(GST_API_VERSION).la \
                                -lmedia \
                                $(EGL_LIBS) $(EGLGLES_LIBS) \
