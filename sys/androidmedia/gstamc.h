@@ -24,12 +24,14 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/audio/audio.h>
-#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+#ifdef HAVE_ANDROID_MEDIA
 #include <jni.h>
 #endif
 
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
 #include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_format_layer.h>
+#endif
 
 G_BEGIN_DECLS
 
@@ -61,20 +63,26 @@ struct _GstAmcCodecInfo {
 };
 
 struct _GstAmcBuffer {
+#ifdef HAVE_ANDROID_MEDIA
   jobject object; /* global reference */
+#endif
   guint8 *data;
   gsize size;
 };
 
 struct _GstAmcFormat {
+#ifdef HAVE_ANDROID_MEDIA
   /* < private > */
   jobject object; /* global reference */
+#endif
   MediaFormat format;
 };
 
 struct _GstAmcCodec {
+#ifdef HAVE_ANDROID_MEDIA
   /* < private > */
   jobject object; /* global reference */
+#endif
 #ifdef HAVE_ANDROID_MEDIA_HYBRIS
   MediaCodecDelegate *codec_delegate;
   guint texture_id;

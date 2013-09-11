@@ -76,7 +76,7 @@ else
 DAALA_DIR=
 endif
 
-if USE_MIR
+if USE_ANDROID_MEDIA_HYBRIS
 MIR_DIR=mir
 else
 MIR_DIR=

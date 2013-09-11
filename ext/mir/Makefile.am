@@ -3,7 +3,7 @@ plugin_LTLIBRARIES = libgstmirsink.la
 libgstmirsink_la_SOURCES = gstmirsink.c mirpool.c
 libgstmirsink_la_CFLAGS = $(GST_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) \
                                $(MIR_CFLAGS) \
-                          -I../../gst-libs/
+                               -I../../gst-libs/
 libgstmirsink_la_LIBADD = $(GST_PLUGINS_BASE_LIBS) \
                                -lgstvideo-$(GST_API_VERSION) \
                                $(top_builddir)/gst-libs/gst/mir/libgstmiralloc-$(GST_API_VERSION).la \
