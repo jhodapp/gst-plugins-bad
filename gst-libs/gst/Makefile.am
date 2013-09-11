@@ -2,7 +2,7 @@ if HAVE_EGL
 EGL_DIR = egl
 endif
 
-if HAVE_MIR_ALLOC
+if USE_ANDROID_MEDIA_HYBRIS
 MIR_DIR = mir
 endif
 
