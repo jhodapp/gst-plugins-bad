@@ -48,6 +48,9 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+/* Use an eglNativeWindow instead of a texture id */
+//#define USE_EGL_WINDOW
+
 /* signals */
 enum
 {
@@ -74,97 +77,85 @@ GST_DEBUG_CATEGORY (gstmir_debug);
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-#if 0
-    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE_WITH_FEATURES
-        (GST_CAPS_FEATURE_MEMORY_MIR_IMAGE,
-            "{ " "RGBA, BGRA, ARGB, ABGR, " "RGBx, BGRx, xRGB, xBGR, "
-            "AYUV, Y444, I420, YV12, " "NV12, NV21, Y42B, Y41B, "
-            "RGB, BGR, RGB16 }")));
-#endif
+    GST_STATIC_CAPS ("video/x-raw, "
+        "format=(string)NV12, "
+        "width=(int)[ 1, MAX ], " "height=(int)[ 1, MAX ], "
+        "framerate=(fraction)[ 0, MAX ] "));
 
-    //GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE (CAPS)));
-    //GST_STATIC_CAPS_ANY);
-#if 1
-GST_STATIC_CAPS ("video/x-raw, "
-    "format=(string)NV12, "
-    "width=(int)[ 1, MAX ], " "height=(int)[ 1, MAX ], "
-    "framerate=(fraction)[ 0, MAX ] "));
-#endif
-
-     static guint frame_ready_signal = 0;
+static guint frame_ready_signal = 0;
 
 /* Fixme: Add more interfaces */
 #define gst_mir_sink_parent_class parent_class
 G_DEFINE_TYPE (GstMirSink, gst_mir_sink, GST_TYPE_VIDEO_SINK);
 
-     static void gst_mir_sink_get_property (GObject * object,
-         guint prop_id, GValue * value, GParamSpec * pspec);
-     static void gst_mir_sink_set_property (GObject * object,
-         guint prop_id, const GValue * value, GParamSpec * pspec);
-     static void gst_mir_sink_finalize (GObject * object);
-     static GstCaps *gst_mir_sink_get_caps (GstBaseSink * bsink,
-         GstCaps * filter);
-     static gboolean gst_mir_sink_set_caps (GstBaseSink * bsink,
-         GstCaps * caps);
-     static gboolean gst_mir_sink_start (GstBaseSink * bsink);
-     static gboolean gst_mir_sink_stop (GstBaseSink * bsink);
+static void gst_mir_sink_get_property (GObject * object,
+    guint prop_id, GValue * value, GParamSpec * pspec);
+static void gst_mir_sink_set_property (GObject * object,
+    guint prop_id, const GValue * value, GParamSpec * pspec);
+static void gst_mir_sink_finalize (GObject * object);
+static GstCaps *gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter);
+static gboolean gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps);
+static gboolean gst_mir_sink_start (GstBaseSink * bsink);
+static gboolean gst_mir_sink_stop (GstBaseSink * bsink);
 //static gboolean gst_mir_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer);
-     static gboolean
-         gst_mir_sink_propose_allocation (GstBaseSink * bsink,
-         GstQuery * query);
-     static gboolean gst_mir_sink_render (GstBaseSink * bsink,
-         GstBuffer * buffer);
+static gboolean
+gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query);
+static gboolean gst_mir_sink_render (GstBaseSink * bsink, GstBuffer * buffer);
 
-     static struct display *create_display (void);
-     static struct session *create_session (void);
-     static void create_window (GstMirSink * sink, struct display *display,
-         int width, int height);
+static struct display *create_display (void);
+static struct session *create_session (void);
+#ifdef USE_EGL_WINDOW
+static void create_window (GstMirSink * sink, struct display *display,
+    int width, int height);
+#endif
 
-     static void gst_mir_sink_class_init (GstMirSinkClass * klass)
-     {
-       GObjectClass *gobject_class;
-       GstElementClass *gstelement_class;
-       GstBaseSinkClass *gstbasesink_class;
+static void
+gst_mir_sink_class_init (GstMirSinkClass * klass)
+{
+  GObjectClass *gobject_class;
+  GstElementClass *gstelement_class;
+  GstBaseSinkClass *gstbasesink_class;
 
-       gobject_class = (GObjectClass *) klass;
-       gstelement_class = (GstElementClass *) klass;
-       gstbasesink_class = (GstBaseSinkClass *) klass;
+  gobject_class = (GObjectClass *) klass;
+  gstelement_class = (GstElementClass *) klass;
+  gstbasesink_class = (GstBaseSinkClass *) klass;
 
-       gobject_class->set_property = gst_mir_sink_set_property;
-       gobject_class->get_property = gst_mir_sink_get_property;
-       gobject_class->finalize = GST_DEBUG_FUNCPTR (gst_mir_sink_finalize);
+  gobject_class->set_property = gst_mir_sink_set_property;
+  gobject_class->get_property = gst_mir_sink_get_property;
+  gobject_class->finalize = GST_DEBUG_FUNCPTR (gst_mir_sink_finalize);
 
-       gst_element_class_add_pad_template (gstelement_class,
-           gst_static_pad_template_get (&sink_template));
+  gst_element_class_add_pad_template (gstelement_class,
+      gst_static_pad_template_get (&sink_template));
 
-       gst_element_class_set_static_metadata (gstelement_class,
-           "Mir video sink", "Sink/Video",
-           "Output to Mir surface", "Jim Hodapp <jim.hodapp@canonical.com>");
+  gst_element_class_set_static_metadata (gstelement_class,
+      "Mir video sink", "Sink/Video",
+      "Output to Mir surface", "Jim Hodapp <jim.hodapp@canonical.com>");
 
-       gstbasesink_class->get_caps = GST_DEBUG_FUNCPTR (gst_mir_sink_get_caps);
-       gstbasesink_class->set_caps = GST_DEBUG_FUNCPTR (gst_mir_sink_set_caps);
-       gstbasesink_class->start = GST_DEBUG_FUNCPTR (gst_mir_sink_start);
-       gstbasesink_class->stop = GST_DEBUG_FUNCPTR (gst_mir_sink_stop);
-       //gstbasesink_class->preroll = GST_DEBUG_FUNCPTR (gst_mir_sink_preroll);
-       gstbasesink_class->propose_allocation =
-           GST_DEBUG_FUNCPTR (gst_mir_sink_propose_allocation);
-       gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_mir_sink_render);
+  gstbasesink_class->get_caps = GST_DEBUG_FUNCPTR (gst_mir_sink_get_caps);
+  gstbasesink_class->set_caps = GST_DEBUG_FUNCPTR (gst_mir_sink_set_caps);
+  gstbasesink_class->start = GST_DEBUG_FUNCPTR (gst_mir_sink_start);
+  gstbasesink_class->stop = GST_DEBUG_FUNCPTR (gst_mir_sink_stop);
+  //gstbasesink_class->preroll = GST_DEBUG_FUNCPTR (gst_mir_sink_preroll);
+  gstbasesink_class->propose_allocation =
+      GST_DEBUG_FUNCPTR (gst_mir_sink_propose_allocation);
+  gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_mir_sink_render);
 
-       /* This signal is for being notified when a frame is ready to be rendered. This
-        * is useful for anything outside of the sink that needs to know when each frame
-        * is ready. */
-       frame_ready_signal =
-           g_signal_new ("frame-ready", G_TYPE_FROM_CLASS (klass),
-           G_SIGNAL_RUN_FIRST, 0, NULL, NULL, g_cclosure_marshal_generic,
-           G_TYPE_NONE, 0);
+  /* This signal is for being notified when a frame is ready to be rendered. This
+   * is useful for anything outside of the sink that needs to know when each frame
+   * is ready. */
+  frame_ready_signal =
+      g_signal_new ("frame-ready", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_FIRST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_POINTER);
 
-       g_object_class_install_property (gobject_class, PROP_MIR_TEXTURE_ID,
-           g_param_spec_uint ("texture-id", "Texture ID",
-               "Texture ID to render video to, created by the application", 0,
-               UINT_MAX, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-     }
+  g_object_class_install_property (gobject_class, PROP_MIR_TEXTURE_ID,
+      g_param_spec_uint ("texture-id", "Texture ID",
+          "Texture ID to render video to, created by the application", 0,
+          UINT_MAX, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+}
 
-static void gst_mir_sink_init (GstMirSink * sink)
+static void
+gst_mir_sink_init (GstMirSink * sink)
 {
   GST_WARNING ("Initializing mir sink!");
   sink->session = NULL;
@@ -176,7 +167,7 @@ static void gst_mir_sink_init (GstMirSink * sink)
 }
 
 static void
-    gst_mir_sink_get_property (GObject * object,
+gst_mir_sink_get_property (GObject * object,
     guint prop_id, GValue * value, GParamSpec * pspec)
 {
   GstMirSink *sink = GST_MIR_SINK (object);
@@ -192,7 +183,16 @@ static void
 }
 
 static void
-    gst_mir_sink_set_property (GObject * object,
+gst_mir_sink_create_surface_texture (GObject * object)
+{
+  GstMirSink *sink = GST_MIR_SINK (object);
+
+  surface_texture_client_create_by_id (sink->texture_id);
+  GST_DEBUG_OBJECT (sink, "Created new SurfaceTextureClientHybris instance");
+}
+
+static void
+gst_mir_sink_set_property (GObject * object,
     guint prop_id, const GValue * value, GParamSpec * pspec)
 {
   GstMirSink *sink = GST_MIR_SINK (object);
@@ -200,18 +200,23 @@ static void
   switch (prop_id) {
     case PROP_MIR_TEXTURE_ID:
       sink->texture_id = g_value_get_uint (value);
+      GST_DEBUG_OBJECT (object, "texture_id: %d", sink->texture_id);
+      gst_mir_sink_create_surface_texture (object);
       break;
-      default:G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
   }
 }
 
-static void destroy_display (struct display *display)
+static void
+destroy_display (struct display *display)
 {
   free (display);
 }
 
-static void destroy_session (struct session *session)
+static void
+destroy_session (struct session *session)
 {
   if (session->app_options)
     u_application_options_destroy (session->app_options);
@@ -222,7 +227,8 @@ static void destroy_session (struct session *session)
   free (session);
 }
 
-static void destroy_window (struct window *window)
+static void
+destroy_window (struct window *window)
 {
   if (window->properties)
     ua_ui_window_properties_destroy (window->properties);
@@ -233,7 +239,8 @@ static void destroy_window (struct window *window)
   free (window);
 }
 
-static void gst_mir_sink_finalize (GObject * object)
+static void
+gst_mir_sink_finalize (GObject * object)
 {
   GstMirSink *sink = GST_MIR_SINK (object);
 
@@ -253,7 +260,8 @@ static void gst_mir_sink_finalize (GObject * object)
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
-static GstCaps *gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter)
+static GstCaps *
+gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter)
 {
   GstMirSink *sink;
   GstCaps *caps;
@@ -274,12 +282,13 @@ static GstCaps *gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter)
   return caps;
 }
 
-static struct display *create_display (void)
+static struct display *
+create_display (void)
 {
   struct display *display;
-    display = malloc (sizeof *display);
+  display = malloc (sizeof *display);
 
-    display->display = ua_ui_display_new_with_index (0);
+  display->display = ua_ui_display_new_with_index (0);
   if (display->display == NULL) {
     free (display);
     return NULL;
@@ -293,40 +302,42 @@ static struct display *create_display (void)
   return display;
 }
 
-static struct session *create_session (void)
+static struct session *
+create_session (void)
 {
   struct session *session;
   char argv[1][1];
-    session = malloc (sizeof *session);
+  session = malloc (sizeof *session);
 
-    session->properties = ua_ui_session_properties_new ();
-    ua_ui_session_properties_set_type (session->properties, U_SYSTEM_SESSION);
-    session->session = ua_ui_session_new_with_properties (session->properties);
+  session->properties = ua_ui_session_properties_new ();
+  ua_ui_session_properties_set_type (session->properties, U_SYSTEM_SESSION);
+  session->session = ua_ui_session_new_with_properties (session->properties);
   if (!session->session)
-      GST_WARNING ("Failed to start new UA session");
+    GST_WARNING ("Failed to start new UA session");
 
-    session->app_description = u_application_description_new ();
-    session->app_lifecycle_delegate = u_application_lifecycle_delegate_new ();
-  // No context data to pass to the lifecycle delegate for now
-    u_application_lifecycle_delegate_set_context
+  session->app_description = u_application_description_new ();
+  session->app_lifecycle_delegate = u_application_lifecycle_delegate_new ();
+  /* No context data to pass to the lifecycle delegate for now */
+  u_application_lifecycle_delegate_set_context
       (session->app_lifecycle_delegate, NULL);
-    u_application_description_set_application_lifecycle_delegate
+  u_application_description_set_application_lifecycle_delegate
       (session->app_description, session->app_lifecycle_delegate);
 
-  // The UA requires a command line option set, so give it a fake argv array
-    argv[0][0] = '\n';
-    session->app_options =
+  /* The UA requires a command line option set, so give it a fake argv array */
+  argv[0][0] = '\n';
+  session->app_options =
       u_application_options_new_from_cmd_line (1, (char **) argv);
-    session->app_instance =
+  session->app_instance =
       u_application_instance_new_from_description_with_options
       (session->app_description, session->app_options);
   if (!session->app_instance)
-      GST_WARNING ("Failed to start a new UA instance");
+    GST_WARNING ("Failed to start a new UA instance");
 
-    return session;
+  return session;
 }
 
-static gboolean gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
+static gboolean
+gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
 {
   GstMirSink *sink = GST_MIR_SINK (bsink);
   GstBufferPool *newpool, *oldpool;
@@ -334,7 +345,8 @@ static gboolean gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
   GstVideoInfo info;
   GstStructure *config;
   static GstAllocationParams params = {
-  0, 0, 0, 15,};
+    0, 0, 0, 15,
+  };
   guint size;
 
   sink = GST_MIR_SINK (bsink);
@@ -406,66 +418,60 @@ config_failed:
   }
 }
 
+#ifdef USE_EGL_WINDOW
 static void
-    create_window (GstMirSink * sink, struct display *display, int width,
+create_window (GstMirSink * sink, struct display *display, int width,
     int height)
 {
   struct window *window;
-  GLuint texture_id = 0;
 
-  // No need to create a window a second time
+  /* No need to create a window a second time */
   if (sink->window)
-      return;
+    return;
 
-    g_mutex_lock (&sink->mir_lock);
+  g_mutex_lock (&sink->mir_lock);
 
-    window = malloc (sizeof *window);
-    window->display = display;
-    window->width = width;
-    window->height = height;
+  window = malloc (sizeof *window);
+  window->display = display;
+  window->width = width;
+  window->height = height;
 
-    window->properties = ua_ui_window_properties_new_for_normal_window ();
-    ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow",
-      13);
+  window->properties = ua_ui_window_properties_new_for_normal_window ();
+  ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow", 13);
 
-    ua_ui_window_properties_set_role (window->properties, 1);
-    GST_DEBUG ("Creating new UA window");
-    window->window =
-      ua_ui_window_new_for_application_with_properties (sink->session->
-      app_instance, window->properties);
-    GST_DEBUG ("Setting window geometry");
+  ua_ui_window_properties_set_role (window->properties, 1);
+  GST_DEBUG ("Creating new UA window");
+  window->window =
+      ua_ui_window_new_for_application_with_properties (sink->
+      session->app_instance, window->properties);
+  GST_DEBUG ("Setting window geometry");
 #if 1
   // FIXME: temporary testing hack, this needs to be set dynamically!
-    window->width = 720;
-    window->height = 1280;
+  window->width = 720;
+  window->height = 1280;
 #endif
-    GST_DEBUG_OBJECT (sink, "width: %d, height: %d", window->width,
+  GST_DEBUG_OBJECT (sink, "width: %d, height: %d", window->width,
       window->height);
 #if 1
   if (height != 0 || width != 0)
-      ua_ui_window_resize (window->window, window->width, window->height);
+    ua_ui_window_resize (window->window, window->width, window->height);
 #endif
 
-    window->egl_native_window = ua_ui_window_get_native_type (window->window);
+  window->egl_native_window = ua_ui_window_get_native_type (window->window);
+  sink->window = window;
 
-#if 1
-    glGenTextures (1, &texture_id);
-    GST_WARNING_OBJECT (sink, "texture_id: %d", texture_id);
-#endif
-
-    sink->window = window;
-
-    g_mutex_unlock (&sink->mir_lock);
+  g_mutex_unlock (&sink->mir_lock);
 }
+#endif
 
-static gboolean gst_mir_sink_start (GstBaseSink * bsink)
+static gboolean
+gst_mir_sink_start (GstBaseSink * bsink)
 {
   GstMirSink *sink = (GstMirSink *) bsink;
 
   GST_DEBUG_OBJECT (sink, "start");
 
-#if 1
-  // Create a new Ubuntu Application API session
+  /* Create a new Ubuntu Application API session */
   if (sink->session == NULL)
     sink->session = create_session ();
 
@@ -493,19 +499,22 @@ static gboolean gst_mir_sink_start (GstBaseSink * bsink)
     sink->video_height = 1080;
     GST_DEBUG_OBJECT (sink, "video_width: %d, video_height: %d",
         sink->video_width, sink->video_height);
+    // This is the old place where I'd set up the window and surface texture client
+#ifdef USE_EGL_WINDOW
     create_window (sink, sink->display, sink->video_width, sink->video_height);
     sink->surface_texture_client =
         surface_texture_client_create (sink->window->egl_native_window);
     GST_DEBUG_OBJECT (sink,
         "Created new SurfaceTextureClientHybris instance: %p",
         sink->surface_texture_client);
-  }
 #endif
+  }
 
   return TRUE;
 }
 
-static gboolean gst_mir_sink_stop (GstBaseSink * bsink)
+static gboolean
+gst_mir_sink_stop (GstBaseSink * bsink)
 {
   GstMirSink *sink = (GstMirSink *) bsink;
 
@@ -515,7 +524,7 @@ static gboolean gst_mir_sink_stop (GstBaseSink * bsink)
 }
 
 static gboolean
-    gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
+gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
 {
   GstMirSink *sink = GST_MIR_SINK (bsink);
   GstBufferPool *pool;
@@ -636,7 +645,7 @@ config_failed:
 
 #if 0
 static GstFlowReturn
-    gst_mir_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
+gst_mir_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
 {
   GST_DEBUG_OBJECT (bsink, "preroll buffer %p", buffer);
   return gst_mir_sink_render (bsink, buffer);
@@ -644,23 +653,23 @@ static GstFlowReturn
 #endif
 
 static GstFlowReturn
-    gst_mir_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
+gst_mir_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 {
   GstMirSink *sink = GST_MIR_SINK (bsink);
-  GstVideoRectangle src, dst, res;
+  //GstVideoRectangle src, dst, res;
   GstBuffer *to_render;
   GstMirMeta *meta;
   //GstFlowReturn ret;
   struct window *window = NULL;
-  struct display *display = NULL;
+  //struct display *display = NULL;
 
   GST_DEBUG_OBJECT (sink, "render buffer %p", buffer);
 
   window = sink->window;
-  display = sink->display;
+  //display = sink->display;
 
   GST_DEBUG_OBJECT (sink, "window: %p", window);
-  GST_DEBUG_OBJECT (sink, "display: %p", display);
+  //GST_DEBUG_OBJECT (sink, "display: %p", display);
 
   meta = gst_buffer_get_mir_meta (buffer);
 
@@ -691,14 +700,16 @@ static GstFlowReturn
 #endif
   }
 
-  g_signal_emit (G_OBJECT (bsink), frame_ready_signal, 0);
+  g_signal_emit_by_name (G_OBJECT (bsink), "frame-ready");
 
+#if 0
   src.w = sink->video_width;
   src.h = sink->video_height;
   dst.w = sink->window->width;
   dst.h = sink->window->height;
 
   gst_video_sink_center_rect (src, dst, &res, FALSE);
+#endif
 
   if (buffer != to_render)
     gst_buffer_unref (to_render);
@@ -726,7 +737,8 @@ activate_failed:
 #endif
 }
 
-static gboolean plugin_init (GstPlugin * plugin)
+static gboolean
+plugin_init (GstPlugin * plugin)
 {
   GST_DEBUG_CATEGORY_INIT (gstmir_debug, "mirsink", 0, " mir video sink");
 
