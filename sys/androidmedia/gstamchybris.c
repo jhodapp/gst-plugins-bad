@@ -1128,7 +1128,6 @@ static const struct
   COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced, GST_VIDEO_FORMAT_NV12}, {
   COLOR_QCOM_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {
   COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka, GST_VIDEO_FORMAT_NV12}, {
-  COLOR_QCOM_FormatYUV420PackedSemiPlanar32m, GST_VIDEO_FORMAT_NV12}, {
   256, GST_VIDEO_FORMAT_NV12}
 };
 
