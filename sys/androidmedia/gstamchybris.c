@@ -876,7 +876,7 @@ scan_codecs (GstPlugin * plugin)
       GstAmcCodecType *gst_codec_type;
       gchar *supported_type_str;
       guint32 *color_formats_elems = NULL;
-      jsize n_elems = 0, k;
+      size_t n_elems = 0, k;
       int err = 0;
       size_t len = 0;
       gchar *mime = NULL;
