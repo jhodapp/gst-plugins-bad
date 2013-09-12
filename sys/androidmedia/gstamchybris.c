@@ -36,6 +36,7 @@
 #include <gst/audio/audio.h>
 #include <string.h>
 
+#include <hybris/media/media_compatibility_layer.h>
 #include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_codec_list.h>
 #include <hybris/media/media_format_layer.h>
@@ -1809,6 +1810,10 @@ plugin_init (GstPlugin * plugin)
   ignore = g_getenv ("GST_AMC_IGNORE_UNKNOWN_COLOR_FORMATS");
   if (ignore && strcmp (ignore, "yes") == 0)
     ignore_unknown_color_formats = TRUE;
+
+  /* Check if the media compat layer is available */
+  if (!media_compat_check_availability())
+    return FALSE;
 
   if (!scan_codecs (plugin))
     return FALSE;
