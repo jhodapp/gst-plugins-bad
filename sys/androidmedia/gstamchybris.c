@@ -1799,7 +1799,7 @@ plugin_init (GstPlugin * plugin)
 
   GST_DEBUG_CATEGORY_INIT (gst_amc_debug, "amc", 0, "android-media-codec");
 
-  gst_plugin_add_dependency_simple (plugin, NULL, "/etc", "media_codecs.xml",
+  gst_plugin_add_dependency_simple (plugin, NULL, "/system/etc", "media_codecs.xml",
       GST_PLUGIN_DEPENDENCY_FLAG_NONE);
 
   /* Set this to TRUE to allow registering decoders that have
