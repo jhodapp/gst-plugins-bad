@@ -48,9 +48,6 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-/* Use an eglNativeWindow instead of a texture id */
-//#define USE_EGL_WINDOW
-
 /* signals */
 enum
 {

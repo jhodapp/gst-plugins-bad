@@ -780,6 +780,10 @@ gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
   return TRUE;
 }
 
+/* Disabled for now since this plugin does not support non-hardware accelerated
+ * video rendering at the moment.
+ */
+#if 0
 /*
  * The format is called QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka.
  * Which is actually NV12 (interleaved U&V).
@@ -803,6 +807,7 @@ tile_pos (size_t x, size_t y, size_t w, size_t h)
 
   return flim;
 }
+#endif
 
 /* The weird handling of cropping, alignment and everything is taken from
  * platform/frameworks/media/libstagefright/colorconversion/ColorConversion.cpp
@@ -890,6 +895,9 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
   }
 #endif
 
+  /* Disabled for now since this plugin does not support non-hardware accelerated
+   * video rendering at the moment.
+   */
 #if 0
   GST_DEBUG_OBJECT (self,
       "Sizes not equal (%d vs %d), doing slow line-by-line copying",
