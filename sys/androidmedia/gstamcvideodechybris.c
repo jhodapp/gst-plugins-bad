@@ -776,10 +776,6 @@ gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
   return TRUE;
 }
 
-/* Disabled for now since this plugin does not support non-hardware accelerated
- * video rendering at the moment.
- */
-#if 0
 /*
  * The format is called QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka.
  * Which is actually NV12 (interleaved U&V).
@@ -803,7 +799,6 @@ tile_pos (size_t x, size_t y, size_t w, size_t h)
 
   return flim;
 }
-#endif
 
 /* The weird handling of cropping, alignment and everything is taken from
  * platform/frameworks/media/libstagefright/colorconversion/ColorConversion.cpp
@@ -812,13 +807,13 @@ static gboolean
 gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     const GstAmcBufferInfo * buffer_info, GstBuffer * outbuf)
 {
-  //GstAmcVideoDecClass *klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
+  GstAmcVideoDecClass *klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
   GstAmcBuffer *buf = &self->output_buffers[idx];
   GstVideoCodecState *state =
       gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
-  //GstVideoInfo *info = &state->info;
+  GstVideoInfo *info = &state->info;
   gboolean ret = FALSE;
-  GstMemory *mem = { NULL };
+  gint err = 0;
 
   GST_DEBUG_OBJECT (self, "%s", __PRETTY_FUNCTION__);
 
@@ -831,54 +826,23 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
   GST_DEBUG_OBJECT (self,
       "buffer_info->size: %d, gst_buffer_get_size (outbuf): %d",
       buffer_info->size, gst_buffer_get_size (outbuf));
-  /* Same video format */
-#if 0
-  if (buffer_info->size == gst_buffer_get_size (outbuf)) {
-    GstMemory *mem = { NULL };
-#endif
 
-    GST_DEBUG_OBJECT (self, "Buffer sizes equal, not doing a copy");
+  /* Same video format */
+  if (buffer_info->size == 0 && gst_buffer_get_size (outbuf) > 0) {
+    GstMemory *mem = { NULL };
+    GST_DEBUG_OBJECT (self, "Doing hardware rendering");
 
     if (gst_buffer_n_memory (outbuf) >= 1 &&
         (mem = gst_buffer_peek_memory (outbuf, 0))
         && gst_is_mir_image_memory (mem)) {
-#if 0
-      gint err = 0;
-#endif
 
       GST_DEBUG_OBJECT (self, "It is Mir image memory");
       GST_DEBUG_OBJECT (self, "mem: %p", mem);
       GST_DEBUG_OBJECT (self, "gst_mir_image_memory_get_codec: %p",
           self->codec->codec_delegate);
-      gst_mir_image_memory_set_codec (mem, self->codec->codec_delegate);
-      gst_mir_image_memory_set_buffer_index (mem, idx);
-
-#if 0
-      if (!self->codec->codec_delegate)
-        GST_ERROR_OBJECT (self,
-            "codec_delegate is NULL, rendering will not function");
-
-      GST_DEBUG_OBJECT (self, "mem: %p", mem);
-      GST_DEBUG_OBJECT (self, "gst_mir_image_memory_get_codec (mem): %p",
-          self->codec->codec_delegate);
-      GST_DEBUG_OBJECT (self, "gst_mir_image_memory_get_buffer_index (mem): %d",
-          gst_mir_image_memory_get_buffer_index (mem));
-      GST_DEBUG_OBJECT (self, "Rendering buffer: %d",
-          gst_mir_image_memory_get_buffer_index (mem));
-      GST_DEBUG_OBJECT (self, "Releasing output buffer index: %d",
-          gst_mir_image_memory_get_buffer_index (mem));
-
-      /* Render and release the output buffer back to the decoder */
-      err =
-          media_codec_release_output_buffer (self->codec->codec_delegate,
-          gst_mir_image_memory_get_buffer_index (mem));
-      if (err < 0)
-        GST_WARNING_OBJECT (self,
-            "Failed to release output buffer. Rendering will probably be affected (err: %d).",
-            err);
-#endif
     } else {
       GstMapInfo minfo;
+      GST_DEBUG_OBJECT (self, "Doing software rendering");
 
       gst_buffer_map (outbuf, &minfo, GST_MAP_WRITE);
       orc_memcpy (minfo.data, buf->data + buffer_info->offset,
@@ -887,17 +851,12 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     }
     ret = TRUE;
     goto done;
-#if 0
   }
-#endif
 
   /* Disabled for now since this plugin does not support non-hardware accelerated
    * video rendering at the moment.
    */
-#if 0
-  GST_DEBUG_OBJECT (self,
-      "Sizes not equal (%d vs %d), doing slow line-by-line copying",
-      buffer_info->size, gst_buffer_get_size (outbuf));
+  GST_DEBUG_OBJECT (self, "Doing slow software line-by-line copying");
 
   /* Different video format, try to convert */
   switch (self->color_format) {
@@ -1148,7 +1107,13 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       goto done;
       break;
   }
-#endif
+
+  /* Render and release the output buffer back to the decoder */
+  err = media_codec_release_output_buffer (self->codec->codec_delegate, 0);
+  if (err < 0)
+    GST_WARNING_OBJECT (self,
+        "Failed to release output buffer. Rendering will probably be affected (err: %d).",
+        err);
 
 done:
   gst_video_codec_state_unref (state);
