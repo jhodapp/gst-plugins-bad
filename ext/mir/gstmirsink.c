@@ -327,9 +327,8 @@ create_window (GstMirSink * sink, struct display *display, int width,
       ua_ui_window_new_for_application_with_properties (sink->
       session->app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
-  // FIXME: Set some sane window size defaults. This should probably be set dynamically
-  window->width = 720;
-  window->height = 1280;
+  window->width = window->display->width;
+  window->height = window->display->height;
   GST_DEBUG_OBJECT (sink, "width: %d, height: %d", window->width,
       window->height);
 
@@ -473,9 +472,8 @@ gst_mir_sink_start (GstBaseSink * bsink)
   }
 
   if (sink->window == NULL) {
-    // FIXME: Set some sane window size defaults. This should probably be set dynamically
-    sink->video_width = 1920;
-    sink->video_height = 1080;
+    sink->video_width = sink->display->width;
+    sink->video_height = sink->display->height;
     GST_DEBUG_OBJECT (sink, "video_width: %d, video_height: %d",
         sink->video_width, sink->video_height);
     // This is the old place where I'd set up the window and surface texture client
