@@ -324,8 +324,8 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_role (window->properties, 1);
   GST_DEBUG ("Creating new UA window");
   window->window =
-      ua_ui_window_new_for_application_with_properties (sink->
-      session->app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->session->
+      app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
   window->width = window->display->width;
   window->height = window->display->height;
@@ -449,6 +449,11 @@ gst_mir_sink_start (GstBaseSink * bsink)
 
   GST_DEBUG_OBJECT (sink, "start");
 
+  /* If we are using a texture_id, there's no need to use the Ubuntu
+   * Platform API to create an EGLNativeWindowType */
+  if (sink->texture_id)
+    return TRUE;
+
   /* Create a new Ubuntu Application API session */
   if (sink->session == NULL)
     sink->session = create_session ();
@@ -460,7 +465,6 @@ gst_mir_sink_start (GstBaseSink * bsink)
     return FALSE;
   }
 
-  GST_DEBUG_OBJECT (sink, "Creating new display.");
   if (sink->display == NULL)
     sink->display = create_display ();
 
@@ -471,18 +475,16 @@ gst_mir_sink_start (GstBaseSink * bsink)
     return FALSE;
   }
 
+  /* Create an EGLNativeWindowType instance so that a pure playbin
+   * scenario will render video */
   if (sink->window == NULL) {
     sink->video_width = sink->display->width;
     sink->video_height = sink->display->height;
     GST_DEBUG_OBJECT (sink, "video_width: %d, video_height: %d",
         sink->video_width, sink->video_height);
-    // This is the old place where I'd set up the window and surface texture client
     create_window (sink, sink->display, sink->video_width, sink->video_height);
     sink->surface_texture_client =
         surface_texture_client_create (sink->window->egl_native_window);
-    GST_DEBUG_OBJECT (sink,
-        "Created new SurfaceTextureClientHybris instance: %p",
-        sink->surface_texture_client);
   }
 
   return TRUE;
