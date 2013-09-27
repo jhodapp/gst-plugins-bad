@@ -299,7 +299,6 @@ no_buffer:
 static void
 gst_mir_buffer_pool_release_buffer (GstBufferPool * pool, GstBuffer * buffer)
 {
-#if 1
   GstMemory *mem = { NULL };
   int err = 0;
   MediaCodecDelegate delegate;
@@ -335,7 +334,6 @@ gst_mir_buffer_pool_release_buffer (GstBufferPool * pool, GstBuffer * buffer)
     GST_WARNING_OBJECT (pool,
         "Failed to release output buffer. Rendering will probably be affected (err: %d).",
         err);
-#endif
 
 done:
   GST_BUFFER_POOL_CLASS (parent_class)->release_buffer (pool, buffer);
