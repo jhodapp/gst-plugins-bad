@@ -39,6 +39,11 @@
 #include <gst/video/gstvideosink.h>
 #include <gst/video/gstvideometa.h>
 
+#include <ubuntu/application/ui/window.h>
+#include <ubuntu/application/ui/options.h>
+#include <ubuntu/application/ui/display.h>
+#include <ubuntu/application/ui/session.h>
+
 #include <hybris/media/surface_texture_client_hybris.h>
 
 #define GST_TYPE_MIR_SINK \
@@ -59,11 +64,44 @@ typedef struct _GstMirSinkClass GstMirSinkClass;
 
 #include "mirpool.h"
 
+struct session
+{
+  UAUiSession *session;
+  UAUiSessionProperties *properties;
+
+  UApplicationDescription *app_description;
+  UApplicationOptions *app_options;
+  UApplicationInstance *app_instance;
+  UApplicationLifecycleDelegate *app_lifecycle_delegate;
+};
+
+struct display
+{
+  UAUiDisplay *display;
+  int width;
+  int height;
+  uint32_t formats;
+};
+
+struct window
+{
+  struct display *display;
+  int width;
+  int height;
+  UAUiWindow *window;
+  UAUiWindowProperties *properties;
+  EGLNativeWindowType egl_native_window;
+};
+
 struct _GstMirSink
 {
   GstVideoSink parent;
 
   SurfaceTextureClientHybris surface_texture_client;
+
+  struct session *session;
+  struct display *display;
+  struct window *window;
 
   guint texture_id;
 

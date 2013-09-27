@@ -1294,7 +1294,7 @@ retry:
   is_eos = ! !(buffer_info.flags & BUFFER_FLAG_END_OF_STREAM);
 
   if (is_eos) {
-    GST_DEBUG_OBJECT (self, "EOS detected!");
+    GST_DEBUG_OBJECT (self, "EOS detected");
     flow_ret = GST_FLOW_EOS;
   }
 
