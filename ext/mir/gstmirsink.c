@@ -322,6 +322,7 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow", 13);
 
   ua_ui_window_properties_set_role (window->properties, 1);
+  ua_ui_window_properties_set_input_cb_and_ctx(window->properties, NULL, NULL);
   GST_DEBUG ("Creating new UA window");
   window->window =
       ua_ui_window_new_for_application_with_properties (sink->session->
