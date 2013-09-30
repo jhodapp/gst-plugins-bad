@@ -187,7 +187,7 @@ gst_mir_sink_set_property (GObject * object,
   switch (prop_id) {
     case PROP_MIR_TEXTURE_ID:
       sink->texture_id = g_value_get_uint (value);
-      GST_DEBUG_OBJECT (object, "texture_id: %d", sink->texture_id);
+      GST_WARNING_OBJECT (object, "texture_id: %d", sink->texture_id);
       gst_mir_sink_create_surface_texture (object);
       break;
     default:
@@ -196,6 +196,7 @@ gst_mir_sink_set_property (GObject * object,
   }
 }
 
+#if 0
 static void
 destroy_display (struct display *display)
 {
@@ -225,6 +226,7 @@ destroy_window (struct window *window)
 
   free (window);
 }
+#endif
 
 static void
 gst_mir_sink_finalize (GObject * object)
@@ -233,20 +235,23 @@ gst_mir_sink_finalize (GObject * object)
 
   GST_DEBUG_OBJECT (sink, "Finalizing the sink..");
 
+#if 0
   if (sink->window)
     destroy_window (sink->window);
   if (sink->display)
     destroy_display (sink->display);
-  if (sink->surface_texture_client)
-    surface_texture_client_destroy (sink->surface_texture_client);
   if (sink->session)
     destroy_session (sink->session);
+#endif
+  if (sink->surface_texture_client)
+    surface_texture_client_destroy (sink->surface_texture_client);
 
   g_mutex_clear (&sink->mir_lock);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
+#if 0
 static struct display *
 create_display (void)
 {
@@ -322,11 +327,11 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow", 13);
 
   ua_ui_window_properties_set_role (window->properties, 1);
-  ua_ui_window_properties_set_input_cb_and_ctx(window->properties, NULL, NULL);
+  ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
   GST_DEBUG ("Creating new UA window");
   window->window =
-      ua_ui_window_new_for_application_with_properties (sink->session->
-      app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->
+      session->app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
   window->width = window->display->width;
   window->height = window->display->height;
@@ -342,6 +347,7 @@ create_window (GstMirSink * sink, struct display *display, int width,
 
   g_mutex_unlock (&sink->mir_lock);
 }
+#endif
 
 static GstCaps *
 gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter)
@@ -455,6 +461,7 @@ gst_mir_sink_start (GstBaseSink * bsink)
   if (sink->texture_id)
     return TRUE;
 
+#if 0
   /* Create a new Ubuntu Application API session */
   if (sink->session == NULL)
     sink->session = create_session ();
@@ -487,6 +494,7 @@ gst_mir_sink_start (GstBaseSink * bsink)
     sink->surface_texture_client =
         surface_texture_client_create (sink->window->egl_native_window);
   }
+#endif
 
   return TRUE;
 }
