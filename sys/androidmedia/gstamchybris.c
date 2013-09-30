@@ -37,15 +37,8 @@
 #include <string.h>
 
 #include <hybris/media/media_compatibility_layer.h>
-#include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_codec_list.h>
-#include <hybris/media/media_format_layer.h>
 #include <hybris/media/surface_texture_client_hybris.h>
-
-#include <ubuntu/application/ui/window.h>
-#include <ubuntu/application/ui/options.h>
-#include <ubuntu/application/ui/display.h>
-#include <ubuntu/application/ui/session.h>
 
 #include <pthread.h>
 
@@ -61,46 +54,13 @@ static gboolean ignore_unknown_color_formats = TRUE;
 static gboolean ignore_unknown_color_formats = FALSE;
 #endif
 
-struct session
-{
-  UAUiSession *session;
-  UAUiSessionProperties *properties;
-
-  UApplicationDescription *app_description;
-  UApplicationOptions *app_options;
-  UApplicationInstance *app_instance;
-  UApplicationLifecycleDelegate *app_lifecycle_delegate;
-};
-
-struct display
-{
-  UAUiDisplay *display;
-  int width;
-  int height;
-  uint32_t formats;
-};
-
-struct window
-{
-  struct display *display;
-  int width;
-  int height;
-  UAUiWindow *window;
-  UAUiWindowProperties *properties;
-  EGLNativeWindowType egl_native_window;
-};
-
-static struct session *session_s;
-static struct display *display_s;
-static struct window *window_s;
-
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
 
-static struct display *
+static struct ua_display *
 create_display (void)
 {
-  struct display *display;
+  struct ua_display *display;
   display = malloc (sizeof *display);
 
   display->display = ua_ui_display_new_with_index (0);
@@ -117,10 +77,10 @@ create_display (void)
   return display;
 }
 
-static struct session *
+static struct ua_session *
 create_session (void)
 {
-  struct session *session;
+  struct ua_session *session;
   char argv[1][1];
   session = malloc (sizeof *session);
 
@@ -151,11 +111,13 @@ create_session (void)
   return session;
 }
 
-static struct window *
-create_window (struct display *display, struct session *session, int width,
-    int height)
+static struct ua_window *
+create_window (struct ua_display *display, struct ua_session *session,
+    int width, int height)
 {
-  struct window *window;
+  struct ua_window *window;
+
+  g_return_val_if_fail (display != NULL, NULL);
 
   window = malloc (sizeof *window);
   window->display = display;
@@ -163,7 +125,8 @@ create_window (struct display *display, struct session *session, int width,
   window->height = height;
 
   window->properties = ua_ui_window_properties_new_for_normal_window ();
-  ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow", 13);
+  ua_ui_window_properties_set_titlen (window->properties, "VideoRenderWindow",
+      13);
 
   ua_ui_window_properties_set_role (window->properties, 1);
   ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
@@ -179,19 +142,18 @@ create_window (struct display *display, struct session *session, int width,
   if (height != 0 || width != 0)
     ua_ui_window_resize (window->window, window->width, window->height);
 
-
   window->egl_native_window = ua_ui_window_get_native_type (window->window);
   return window;
 }
 
 static void
-destroy_display (struct display *display)
+destroy_display (struct ua_display *display)
 {
   free (display);
 }
 
 static void
-destroy_session (struct session *session)
+destroy_session (struct ua_session *session)
 {
   if (session->app_options)
     u_application_options_destroy (session->app_options);
@@ -203,7 +165,7 @@ destroy_session (struct session *session)
 }
 
 static void
-destroy_window (struct window *window)
+destroy_window (struct ua_window *window)
 {
   if (window->properties)
     ua_ui_window_properties_destroy (window->properties);
@@ -299,17 +261,17 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     GST_WARNING
         ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
     /* Create a new Ubuntu Application API session */
-    session_s = create_session ();
+    codec->session = create_session ();
 
-    if (session_s == NULL) {
+    if (codec->session == NULL) {
       GST_ERROR
           ("Could not initialize Mir output, could not start a Mir app session");
       return FALSE;
     }
 
-    display_s = create_display ();
+    codec->display = create_display ();
 
-    if (display_s == NULL) {
+    if (codec->display == NULL) {
       GST_ERROR
           ("Could not initialize Mir output could not create a Mir display");
       return FALSE;
@@ -317,8 +279,10 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
 
     /* Create an EGLNativeWindowType instance so that a pure playbin
      * scenario will render video */
-    create_window (display_s, session_s, display_s->width, display_s->height);
-    surface_texture_client_create (window_s->egl_native_window);
+    codec->window =
+        create_window (codec->display, codec->session, codec->display->width,
+        codec->display->height);
+    surface_texture_client_create (codec->window->egl_native_window);
   }
 
   err = media_codec_configure (codec->codec_delegate, format->format, stc, 0);
@@ -417,12 +381,12 @@ gst_amc_codec_stop (GstAmcCodec * codec)
     goto done;
   }
 
-  if (window_s)
-    destroy_window (window_s);
-  if (display_s)
-    destroy_display (display_s);
-  if (session_s)
-    destroy_session (session_s);
+  if (codec->window)
+    destroy_window (codec->window);
+  if (codec->display)
+    destroy_display (codec->display);
+  if (codec->session)
+    destroy_session (codec->session);
 
 done:
 

@@ -31,9 +31,45 @@
 #ifdef HAVE_ANDROID_MEDIA_HYBRIS
 #include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_format_layer.h>
+
+#include <ubuntu/application/ui/window.h>
+#include <ubuntu/application/ui/options.h>
+#include <ubuntu/application/ui/display.h>
+#include <ubuntu/application/ui/session.h>
 #endif
 
 G_BEGIN_DECLS
+
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+struct ua_session
+{
+  UAUiSession *session;
+  UAUiSessionProperties *properties;
+
+  UApplicationDescription *app_description;
+  UApplicationOptions *app_options;
+  UApplicationInstance *app_instance;
+  UApplicationLifecycleDelegate *app_lifecycle_delegate;
+};
+
+struct ua_display
+{
+  UAUiDisplay *display;
+  int width;
+  int height;
+  uint32_t formats;
+};
+
+struct ua_window
+{
+  struct ua_display *display;
+  int width;
+  int height;
+  UAUiWindow *window;
+  UAUiWindowProperties *properties;
+  EGLNativeWindowType egl_native_window;
+};
+#endif
 
 typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
@@ -85,6 +121,9 @@ struct _GstAmcCodec {
 #endif
 #ifdef HAVE_ANDROID_MEDIA_HYBRIS
   MediaCodecDelegate *codec_delegate;
+  struct ua_session *session;
+  struct ua_display *display;
+  struct ua_window *window;
   guint texture_id;
 #endif
 };
