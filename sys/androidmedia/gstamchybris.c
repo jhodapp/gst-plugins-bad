@@ -149,14 +149,19 @@ create_window (struct ua_display *display, struct ua_session *session,
 static void
 destroy_display (struct ua_display *display)
 {
+  g_return_if_fail (display != NULL);
   free (display);
 }
 
 static void
 destroy_session (struct ua_session *session)
 {
+  g_return_if_fail (session != NULL);
+
+/* FIXME: Segfaults on SurfaceFlinger. Can uncomment once the transition to Mir is complete.
   if (session->app_options)
     u_application_options_destroy (session->app_options);
+ */
 
   if (session->app_description)
     u_application_description_destroy (session->app_description);
@@ -167,6 +172,7 @@ destroy_session (struct ua_session *session)
 static void
 destroy_window (struct ua_window *window)
 {
+  g_return_if_fail (window != NULL);
   if (window->properties)
     ua_ui_window_properties_destroy (window->properties);
 
