@@ -41,6 +41,11 @@
 #include <hybris/media/media_codec_list.h>
 #include <hybris/media/media_format_layer.h>
 
+#include <ubuntu/application/ui/window.h>
+#include <ubuntu/application/ui/options.h>
+#include <ubuntu/application/ui/display.h>
+#include <ubuntu/application/ui/session.h>
+
 #include <pthread.h>
 
 GST_DEBUG_CATEGORY (gst_amc_debug);
@@ -55,8 +60,158 @@ static gboolean ignore_unknown_color_formats = TRUE;
 static gboolean ignore_unknown_color_formats = FALSE;
 #endif
 
+struct session
+{
+  UAUiSession *session;
+  UAUiSessionProperties *properties;
+
+  UApplicationDescription *app_description;
+  UApplicationOptions *app_options;
+  UApplicationInstance *app_instance;
+  UApplicationLifecycleDelegate *app_lifecycle_delegate;
+};
+
+struct display
+{
+  UAUiDisplay *display;
+  int width;
+  int height;
+  uint32_t formats;
+};
+
+struct window
+{
+  struct display *display;
+  int width;
+  int height;
+  UAUiWindow *window;
+  UAUiWindowProperties *properties;
+  EGLNativeWindowType egl_native_window;
+};
+
+static struct session *session_s;
+static struct display *display_s;
+static struct window *window_s;
+
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
+
+static struct display *
+create_display (void)
+{
+  struct display *display;
+  display = malloc (sizeof *display);
+
+  display->display = ua_ui_display_new_with_index (0);
+  if (display->display == NULL) {
+    free (display);
+    return NULL;
+  }
+
+  display->height = ua_ui_display_query_vertical_res (display->display);
+  display->width = ua_ui_display_query_horizontal_res (display->display);
+
+  GST_DEBUG ("Display resolution: (%d,%d)\n", display->height, display->width);
+
+  return display;
+}
+
+static struct session *
+create_session (void)
+{
+  struct session *session;
+  char argv[1][1];
+  session = malloc (sizeof *session);
+
+  session->properties = ua_ui_session_properties_new ();
+  ua_ui_session_properties_set_type (session->properties, U_USER_SESSION);
+  session->session = ua_ui_session_new_with_properties (session->properties);
+  if (!session->session)
+    GST_WARNING ("Failed to start new Ubuntu Application API session");
+
+  session->app_description = u_application_description_new ();
+  session->app_lifecycle_delegate = u_application_lifecycle_delegate_new ();
+  /* No context data to pass to the lifecycle delegate for now */
+  u_application_lifecycle_delegate_set_context
+      (session->app_lifecycle_delegate, NULL);
+  u_application_description_set_application_lifecycle_delegate
+      (session->app_description, session->app_lifecycle_delegate);
+
+  /* The UA requires a command line option set, so give it a fake argv array */
+  argv[0][0] = '\n';
+  session->app_options =
+      u_application_options_new_from_cmd_line (1, (char **) argv);
+  session->app_instance =
+      u_application_instance_new_from_description_with_options
+      (session->app_description, session->app_options);
+  if (!session->app_instance)
+    GST_WARNING ("Failed to start a new Ubuntu Application API instance");
+
+  return session;
+}
+
+static struct window *
+create_window (struct display *display, struct session *session, int width,
+    int height)
+{
+  struct window *window;
+
+  window = malloc (sizeof *window);
+  window->display = display;
+  window->width = width;
+  window->height = height;
+
+  window->properties = ua_ui_window_properties_new_for_normal_window ();
+  ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow", 13);
+
+  ua_ui_window_properties_set_role (window->properties, 1);
+  ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
+  GST_DEBUG ("Creating new UA window");
+  window->window =
+      ua_ui_window_new_for_application_with_properties (session->app_instance,
+      window->properties);
+  GST_DEBUG ("Setting window geometry");
+  window->width = window->display->width;
+  window->height = window->display->height;
+  GST_DEBUG ("width: %d, height: %d", window->width, window->height);
+
+  if (height != 0 || width != 0)
+    ua_ui_window_resize (window->window, window->width, window->height);
+
+
+  window->egl_native_window = ua_ui_window_get_native_type (window->window);
+  return window;
+}
+
+static void
+destroy_display (struct display *display)
+{
+  free (display);
+}
+
+static void
+destroy_session (struct session *session)
+{
+  if (session->app_options)
+    u_application_options_destroy (session->app_options);
+
+  if (session->app_description)
+    u_application_description_destroy (session->app_description);
+
+  free (session);
+}
+
+static void
+destroy_window (struct window *window)
+{
+  if (window->properties)
+    ua_ui_window_properties_destroy (window->properties);
+
+  if (window->window)
+    ua_ui_window_destroy (window->window);
+
+  free (window);
+}
 
 static gchar *
 locale_to_utf8 (gchar * str, gssize len)
@@ -136,6 +291,34 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
 
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
+
+  GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
+      surface_texture_client_is_ready_for_rendering ());
+  if (!surface_texture_client_is_ready_for_rendering ()) {
+    GST_WARNING
+        ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
+    /* Create a new Ubuntu Application API session */
+    session_s = create_session ();
+
+    if (session_s == NULL) {
+      GST_ERROR
+          ("Could not initialize Mir output, could not start a Mir app session");
+      return FALSE;
+    }
+
+    display_s = create_display ();
+
+    if (display_s == NULL) {
+      GST_ERROR
+          ("Could not initialize Mir output could not create a Mir display");
+      return FALSE;
+    }
+
+    /* Create an EGLNativeWindowType instance so that a pure playbin
+     * scenario will render video */
+    create_window (display_s, session_s, display_s->width, display_s->height);
+    surface_texture_client_create (window_s->egl_native_window);
+  }
 
   err = media_codec_configure (codec->codec_delegate, format->format, stc, 0);
   if (err > 0) {
@@ -232,6 +415,13 @@ gst_amc_codec_stop (GstAmcCodec * codec)
     ret = FALSE;
     goto done;
   }
+
+  if (window_s)
+    destroy_window (window_s);
+  if (display_s)
+    destroy_display (display_s);
+  if (session_s)
+    destroy_session (session_s);
 
 done:
 
@@ -1800,8 +1990,8 @@ plugin_init (GstPlugin * plugin)
 
   GST_DEBUG_CATEGORY_INIT (gst_amc_debug, "amc", 0, "android-media-codec");
 
-  gst_plugin_add_dependency_simple (plugin, NULL, "/system/etc", "media_codecs.xml",
-      GST_PLUGIN_DEPENDENCY_FLAG_NONE);
+  gst_plugin_add_dependency_simple (plugin, NULL, "/system/etc",
+      "media_codecs.xml", GST_PLUGIN_DEPENDENCY_FLAG_NONE);
 
   /* Set this to TRUE to allow registering decoders that have
    * any unknown color formats, or encoders that only have
@@ -1812,7 +2002,7 @@ plugin_init (GstPlugin * plugin)
     ignore_unknown_color_formats = TRUE;
 
   /* Check if the media compat layer is available */
-  if (!media_compat_check_availability())
+  if (!media_compat_check_availability ())
     return FALSE;
 
   if (!scan_codecs (plugin))
