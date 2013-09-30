@@ -118,6 +118,7 @@ create_window (struct ua_display *display, struct ua_session *session,
   struct ua_window *window;
 
   g_return_val_if_fail (display != NULL, NULL);
+  g_return_val_if_fail (session != NULL, NULL);
 
   window = malloc (sizeof *window);
   window->display = display;
