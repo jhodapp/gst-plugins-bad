@@ -40,6 +40,7 @@
 #include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_codec_list.h>
 #include <hybris/media/media_format_layer.h>
+#include <hybris/media/surface_texture_client_hybris.h>
 
 #include <ubuntu/application/ui/window.h>
 #include <ubuntu/application/ui/options.h>
