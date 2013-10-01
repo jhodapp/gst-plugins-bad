@@ -1127,6 +1127,8 @@ static const struct
   COLOR_TI_FormatYUV420PackedSemiPlanar, GST_VIDEO_FORMAT_NV12}, {
   COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced, GST_VIDEO_FORMAT_NV12}, {
   COLOR_QCOM_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {
+  COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka, GST_VIDEO_FORMAT_NV12}, {
+  COLOR_QCOM_FormatYUV420PackedSemiPlanar32m, GST_VIDEO_FORMAT_NV12}, {
   256, GST_VIDEO_FORMAT_NV12}
 };
 
@@ -1143,6 +1145,7 @@ accepted_color_formats (GstAmcCodecType * type, gboolean is_encoder)
       all--;
 
     for (j = 0; j < G_N_ELEMENTS (color_format_mapping_table); j++) {
+      //g_print("color_format_mapping_table[%d].color_format: %d, type->color_formats[%d]: %d", j, color_format_mapping_table[j].color_format, i, type->color_formats[i]);
       if (color_format_mapping_table[j].color_format == type->color_formats[i]) {
         found = TRUE;
         break;

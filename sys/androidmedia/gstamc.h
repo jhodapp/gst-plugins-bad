@@ -24,7 +24,9 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/audio/audio.h>
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
 #include <jni.h>
+#endif
 
 #include <hybris/media/media_codec_layer.h>
 #include <hybris/media/media_format_layer.h>
@@ -73,8 +75,10 @@ struct _GstAmcFormat {
 struct _GstAmcCodec {
   /* < private > */
   jobject object; /* global reference */
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
   MediaCodecDelegate *codec_delegate;
   guint texture_id;
+#endif
 };
 
 struct _GstAmcBufferInfo {
