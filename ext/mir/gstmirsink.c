@@ -42,6 +42,12 @@
 
 #include <gst/mir/mirallocator.h>
 
+#include <gst/egl/egl.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+
 /* signals */
 enum
 {
@@ -53,7 +59,7 @@ enum
 enum
 {
   PROP_0,
-  PROP_MIR_DISPLAY
+  PROP_MIR_TEXTURE_ID
 };
 
 GST_DEBUG_CATEGORY (gstmir_debug);
@@ -84,6 +90,8 @@ GST_STATIC_CAPS ("video/x-raw, "
     "width=(int)[ 1, MAX ], " "height=(int)[ 1, MAX ], "
     "framerate=(fraction)[ 0, MAX ] "));
 #endif
+
+     static guint frame_ready_signal = 0;
 
 /* Fixme: Add more interfaces */
 #define gst_mir_sink_parent_class parent_class
@@ -142,14 +150,23 @@ G_DEFINE_TYPE (GstMirSink, gst_mir_sink, GST_TYPE_VIDEO_SINK);
            GST_DEBUG_FUNCPTR (gst_mir_sink_propose_allocation);
        gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_mir_sink_render);
 
-       g_object_class_install_property (gobject_class, PROP_MIR_DISPLAY,
-           g_param_spec_pointer ("mir-display", "Mir Display",
-               "Mir  Display handle created by the application ",
-               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+       /* This signal is for being notified when a frame is ready to be rendered. This
+        * is useful for anything outside of the sink that needs to know when each frame
+        * is ready. */
+       frame_ready_signal =
+           g_signal_new ("frame-ready", G_TYPE_FROM_CLASS (klass),
+           G_SIGNAL_RUN_FIRST, 0, NULL, NULL, g_cclosure_marshal_generic,
+           G_TYPE_NONE, 0);
+
+       g_object_class_install_property (gobject_class, PROP_MIR_TEXTURE_ID,
+           g_param_spec_uint ("texture-id", "Texture ID",
+               "Texture ID to render video to, created by the application", 0,
+               UINT_MAX, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
      }
 
 static void gst_mir_sink_init (GstMirSink * sink)
 {
+  GST_WARNING ("Initializing mir sink!");
   sink->session = NULL;
   sink->display = NULL;
   sink->window = NULL;
@@ -165,8 +182,8 @@ static void
   GstMirSink *sink = GST_MIR_SINK (object);
 
   switch (prop_id) {
-    case PROP_MIR_DISPLAY:
-      g_value_set_pointer (value, sink->display);
+    case PROP_MIR_TEXTURE_ID:
+      g_value_set_uint (value, sink->texture_id);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -181,8 +198,8 @@ static void
   GstMirSink *sink = GST_MIR_SINK (object);
 
   switch (prop_id) {
-    case PROP_MIR_DISPLAY:
-      sink->display = g_value_get_pointer (value);
+    case PROP_MIR_TEXTURE_ID:
+      sink->texture_id = g_value_get_uint (value);
       break;
       default:G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -394,7 +411,7 @@ static void
     int height)
 {
   struct window *window;
-  //GLuint texture_id;
+  GLuint texture_id = 0;
 
   // No need to create a window a second time
   if (sink->window)
@@ -406,7 +423,6 @@ static void
     window->display = display;
     window->width = width;
     window->height = height;
-  //window->redraw_pending = FALSE;
 
     window->properties = ua_ui_window_properties_new_for_normal_window ();
     ua_ui_window_properties_set_titlen (window->properties, "MirSinkWindow",
@@ -415,8 +431,8 @@ static void
     ua_ui_window_properties_set_role (window->properties, 1);
     GST_DEBUG ("Creating new UA window");
     window->window =
-      ua_ui_window_new_for_application_with_properties (sink->
-      session->app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->session->
+      app_instance, window->properties);
     GST_DEBUG ("Setting window geometry");
 #if 1
   // FIXME: temporary testing hack, this needs to be set dynamically!
@@ -432,9 +448,9 @@ static void
 
     window->egl_native_window = ua_ui_window_get_native_type (window->window);
 
-#if 0
+#if 1
     glGenTextures (1, &texture_id);
-    GST_DEBUG_OBJECT (sink, "texture_id: %d", texture_id);
+    GST_WARNING_OBJECT (sink, "texture_id: %d", texture_id);
 #endif
 
     sink->window = window;
@@ -448,6 +464,7 @@ static gboolean gst_mir_sink_start (GstBaseSink * bsink)
 
   GST_DEBUG_OBJECT (sink, "start");
 
+#if 1
   // Create a new Ubuntu Application API session
   if (sink->session == NULL)
     sink->session = create_session ();
@@ -483,6 +500,7 @@ static gboolean gst_mir_sink_start (GstBaseSink * bsink)
         "Created new SurfaceTextureClientHybris instance: %p",
         sink->surface_texture_client);
   }
+#endif
 
   return TRUE;
 }
@@ -672,6 +690,8 @@ static GstFlowReturn
     meta = gst_buffer_get_mir_meta (to_render);
 #endif
   }
+
+  g_signal_emit (G_OBJECT (bsink), frame_ready_signal, 0);
 
   src.w = sink->video_width;
   src.h = sink->video_height;
