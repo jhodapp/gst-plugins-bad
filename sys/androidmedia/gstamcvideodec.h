@@ -72,6 +72,10 @@ struct _GstAmcVideoDec
   gboolean started;
   gboolean flushing;
 
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+  guint8 num_outbuf_dequeue_tries;
+#endif
+
   GstClockTime last_upstream_ts;
 
   /* Draining state */

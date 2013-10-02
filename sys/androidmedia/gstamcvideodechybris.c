@@ -40,8 +40,6 @@
 #include <gst/mir/mirallocator.h>
 #include <ext/mir/mirpool.h>
 
-#include <stdio.h>
-
 #ifdef HAVE_ORC
 #include <orc/orc.h>
 #else
@@ -89,8 +87,7 @@ static gboolean gst_amc_video_dec_start (GstVideoDecoder * decoder);
 static gboolean gst_amc_video_dec_stop (GstVideoDecoder * decoder);
 static gboolean gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state);
-static gboolean gst_amc_video_dec_reset (GstVideoDecoder * decoder,
-    gboolean hard);
+static gboolean gst_amc_video_dec_flush (GstVideoDecoder * decoder);
 static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
@@ -487,7 +484,7 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->stop = GST_DEBUG_FUNCPTR (gst_amc_video_dec_stop);
   videodec_class->open = GST_DEBUG_FUNCPTR (gst_amc_video_dec_open);
   videodec_class->close = GST_DEBUG_FUNCPTR (gst_amc_video_dec_close);
-  videodec_class->reset = GST_DEBUG_FUNCPTR (gst_amc_video_dec_reset);
+  videodec_class->flush = GST_DEBUG_FUNCPTR (gst_amc_video_dec_flush);
   videodec_class->set_format = GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_format);
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
@@ -522,6 +519,8 @@ gst_amc_video_dec_open (GstVideoDecoder * decoder)
   }
   self->started = FALSE;
   self->flushing = TRUE;
+
+  self->num_outbuf_dequeue_tries = 0;
 
   return TRUE;
 }
@@ -711,6 +710,7 @@ gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
   gint crop_left, crop_right;
   gint crop_top, crop_bottom;
   GstVideoFormat gst_format;
+  GstAmcVideoDecClass *klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
 
   GST_DEBUG_OBJECT (self, "Setting src caps");
 
@@ -721,6 +721,10 @@ gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
     GST_ERROR_OBJECT (self, "Failed to get output format metadata");
     return FALSE;
   }
+
+  if (strcmp (klass->codec_info->name, "OMX.k3.video.decoder.avc") == 0 &&
+      color_format == COLOR_FormatYCbYCr)
+    color_format = COLOR_TI_FormatYUV420PackedSemiPlanar;
 
   stride = media_format_get_stride (format->format);
   slice_height = media_format_get_slice_height (format->format);
@@ -823,6 +827,12 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     goto done;
   }
 
+  if (!self->codec->codec_delegate) {
+    GST_ERROR_OBJECT (self,
+        "codec_delegate is NULL, can't decode/render properly");
+    goto done;
+  }
+
   GST_DEBUG_OBJECT (self,
       "buffer_info->size: %d, gst_buffer_get_size (outbuf): %d",
       buffer_info->size, gst_buffer_get_size (outbuf));
@@ -837,12 +847,11 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
         && gst_is_mir_image_memory (mem)) {
 
       GST_DEBUG_OBJECT (self, "It is Mir image memory");
-      GST_DEBUG_OBJECT (self, "mem: %p", mem);
       GST_DEBUG_OBJECT (self, "gst_mir_image_memory_get_codec: %p",
           self->codec->codec_delegate);
-    } else {
+    } else if (buffer_info->size == gst_buffer_get_size (outbuf)) {
       GstMapInfo minfo;
-      GST_DEBUG_OBJECT (self, "Doing software rendering");
+      GST_DEBUG_OBJECT (self, "Doing fast software rendering");
 
       gst_buffer_map (outbuf, &minfo, GST_MAP_WRITE);
       orc_memcpy (minfo.data, buf->data + buffer_info->offset,
@@ -902,13 +911,20 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
           src += self->crop_left;
           row_length = self->width;
         } else if (i > 0) {
+          /* skip the Y plane */
           src += slice_height * stride;
-          src += self->crop_top * src_stride;
+
+          /* crop_top/crop_left divided by two
+           * because one byte of the U/V planes
+           * corresponds to two pixels horizontally/vertically */
+          src += self->crop_top / 2 * src_stride;
           src += self->crop_left / 2;
           row_length = (self->width + 1) / 2;
         }
-        if (i == 2)
+        if (i == 2) {
+          /* skip the U plane */
           src += ((slice_height + 1) / 2) * ((stride + 1) / 2);
+        }
 
         dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
         height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
@@ -974,7 +990,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     case COLOR_FormatYUV420SemiPlanar:{
       gint i, j, height;
       guint8 *src, *dest;
-      gint src_stride, dest_stride;
+      gint src_stride, dest_stride, fixed_stride;
       gint row_length;
       GstVideoFrame vframe;
 
@@ -984,25 +1000,30 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
         goto done;
       }
 
-      /* FIXME: This is untested! */
+      /* Samsung Galaxy S3 seems to report wrong strides.
+         I.e. BigBuckBunny 854x480 H264 reports a stride of 864 when it is
+         actually 854, so we use width instead of stride here.
+         This is obviously bound to break in the future. */
+      if (g_str_has_prefix (klass->codec_info->name, "OMX.SEC.")) {
+        fixed_stride = self->width;
+      } else {
+        fixed_stride = self->stride;
+      }
+
       gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
+
       for (i = 0; i < 2; i++) {
-        if (i == 0) {
-          src_stride = self->stride;
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        } else {
-          src_stride = self->stride;
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        }
+        src_stride = fixed_stride;
+        dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
 
         src = buf->data + buffer_info->offset;
         if (i == 0) {
-          src += self->crop_top * self->stride;
+          src += self->crop_top * fixed_stride;
           src += self->crop_left;
           row_length = self->width;
         } else if (i == 1) {
-          src += self->slice_height * self->stride;
-          src += self->crop_top * self->stride;
+          src += self->slice_height * fixed_stride;
+          src += self->crop_top * fixed_stride;
           src += self->crop_left;
           row_length = self->width;
         }
@@ -1020,6 +1041,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       ret = TRUE;
       break;
     }
+      /* FIXME: This should be in libgstvideo as MT12 or similar, see v4l2 */
     case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
       GstVideoFrame vframe;
       gint width = self->width;
@@ -1232,7 +1254,26 @@ retry:
         break;
       }
       case INFO_TRY_AGAIN_LATER:
-        GST_DEBUG_OBJECT (self, "Dequeueing output buffer timed out");
+        GST_DEBUG_OBJECT (self,
+            "Dequeueing output buffer timed out, trying again");
+        ++self->num_outbuf_dequeue_tries;
+        /* We don't always want to reset the output buffers, only in the cases when there is a stuck loop
+         * trying to get a new output buffer to decode to.
+         */
+        if (self->num_outbuf_dequeue_tries == 10) {
+          GST_WARNING_OBJECT (self,
+              "Heavy system I/O load detected, resetting output buffers");
+          if (self->output_buffers)
+            gst_amc_codec_free_buffers (self->output_buffers,
+                self->n_output_buffers);
+          self->output_buffers =
+              gst_amc_codec_get_output_buffers (self->codec,
+              &self->n_output_buffers);
+          if (!self->output_buffers)
+            goto get_output_buffers_error;
+
+          self->num_outbuf_dequeue_tries = 0;
+        }
         goto retry;
         break;
       case G_MININT:
@@ -1552,10 +1593,6 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   self->input_state = NULL;
 
   g_free (self->codec_data);
-  if (codec_data)
-    GST_DEBUG_OBJECT (self, "codec_data is NOT NULL");
-  else
-    GST_DEBUG_OBJECT (self, "codec_data is NULL");
   self->codec_data = codec_data;
   self->codec_data_size = codec_data_size;
 
@@ -1609,13 +1646,13 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 }
 
 static gboolean
-gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
+gst_amc_video_dec_flush (GstVideoDecoder * decoder)
 {
   GstAmcVideoDec *self;
 
   self = GST_AMC_VIDEO_DEC (decoder);
 
-  GST_DEBUG_OBJECT (self, "Resetting decoder");
+  GST_DEBUG_OBJECT (self, "Flushing decoder");
 
   if (!self->started) {
     GST_DEBUG_OBJECT (self, "Codec not started yet");
@@ -1641,7 +1678,7 @@ gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
   gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
       (GstTaskFunction) gst_amc_video_dec_loop, decoder, NULL);
 
-  GST_DEBUG_OBJECT (self, "Reset decoder");
+  GST_DEBUG_OBJECT (self, "Flushed decoder");
 
   return TRUE;
 }
