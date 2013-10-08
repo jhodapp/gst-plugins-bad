@@ -66,6 +66,18 @@ gst_mir_image_memory_get_codec (GstMemory * mem)
   return GST_MIR_IMAGE_MEMORY (mem)->codec_delegate;
 }
 
+gboolean
+gst_mir_do_hardware_render (GstMemory * mem)
+{
+  /* Default to doing software render if NULL */
+  g_return_val_if_fail (gst_is_mir_image_memory (mem), FALSE);
+
+  if (mem->parent)
+    mem = mem->parent;
+
+  return GST_MIR_IMAGE_MEMORY (mem)->hardware_rendering;
+}
+
 void
 gst_mir_image_memory_set_codec (GstMemory * mem, MediaCodecDelegate delegate)
 {
@@ -234,7 +246,8 @@ gst_mir_image_allocator_alloc (GstAllocator * allocator,
 GstMemory *
 gst_mir_image_allocator_wrap (GstAllocator * allocator,
     MediaCodecDelegate delegate, gsize buffer_id, GstMemoryFlags flags,
-    gsize size, gpointer user_data, GDestroyNotify user_data_destroy)
+    gsize size, gboolean do_hardware_render, gpointer user_data,
+    GDestroyNotify user_data_destroy)
 {
   GstMirImageMemory *mem;
 
@@ -253,6 +266,7 @@ gst_mir_image_allocator_wrap (GstAllocator * allocator,
 
   mem->codec_delegate = delegate;
   mem->buffer_index = buffer_id;
+  mem->hardware_rendering = do_hardware_render;
   mem->user_data = user_data;
   mem->user_data_destroy = user_data_destroy;
 

@@ -267,6 +267,10 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   if (!surface_texture_client_is_ready_for_rendering ()) {
     GST_WARNING
         ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
+
+    /* Do slower copy-based software rendering */
+    gst_amc_surface_texture_client_set_hardware_rendering (FALSE);
+
     /* Create a new Ubuntu Application API session */
     codec->session = create_session ();
 
@@ -290,6 +294,9 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
         create_window (codec->display, codec->session, codec->display->width,
         codec->display->height);
     surface_texture_client_create (codec->window->egl_native_window);
+  } else {
+    /* Do zero-copy hardware rendering */
+    gst_amc_surface_texture_client_set_hardware_rendering (TRUE);
   }
 
   err = media_codec_configure (codec->codec_delegate, format->format, stc, 0);
@@ -649,7 +656,8 @@ done:
 }
 
 gboolean
-gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
+gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index,
+    gboolean render)
 {
   gboolean ret = TRUE;
   gint err = 0;
@@ -658,7 +666,8 @@ gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
 
   GST_DEBUG ("%s", __PRETTY_FUNCTION__);
 
-  err = media_codec_release_output_buffer (codec->codec_delegate, index);
+  err =
+      media_codec_release_output_buffer (codec->codec_delegate, index, render);
   if (err < 0) {
     GST_ERROR ("Failed to release output buffer (err: %d, index: %d)", err,
         index);
@@ -855,6 +864,13 @@ done:
   if (key_str)
     g_free (key_str);
   key_str = NULL;
+}
+
+void
+gst_amc_surface_texture_client_set_hardware_rendering (gboolean
+    hardware_rendering)
+{
+  surface_texture_client_set_hardware_rendering (hardware_rendering);
 }
 
 static gboolean

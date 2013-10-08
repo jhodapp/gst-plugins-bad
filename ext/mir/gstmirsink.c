@@ -564,13 +564,6 @@ gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
     GST_DEBUG_OBJECT (sink, "create new pool");
     pool = gst_mir_buffer_pool_new (sink);
 
-#if 0
-    gst_mir_buffer_pool_set_surface_texture_client (pool,
-        sink->surface_texture_client);
-    GST_WARNING_OBJECT (sink, "SurfaceTextureClientHybris: %p",
-        sink->surface_texture_client);
-#endif
-
     /* The normal size of a frame */
     size = (info.size == 0) ? info.height * info.width : info.size;
 
@@ -581,14 +574,12 @@ gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   }
 
   if (pool) {
-    gst_mir_buffer_pool_set_surface_texture_client (pool,
-        sink->surface_texture_client);
-    GST_WARNING_OBJECT (sink, "SurfaceTextureClientHybris: %p",
-        sink->surface_texture_client);
+    /* We are doing hardware rendering */
+    gst_mir_buffer_pool_set_hardware_rendering (pool, TRUE);
 
-    GST_WARNING_OBJECT (sink, "adding allocation pool");
     // FIXME: How many buffers min do we need? It's 2 right now.
-    GST_WARNING_OBJECT (sink, "size: %d", size);
+    GST_DEBUG_OBJECT (sink, "size: %d", size);
+    GST_DEBUG_OBJECT (sink, "adding allocation pool");
     gst_query_add_allocation_pool (query, pool, size, 2, 0);
     gst_object_unref (pool);
   }
@@ -606,7 +597,7 @@ gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   gst_query_add_allocation_param (query, allocator, &params);
   gst_object_unref (allocator);
 
-  gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
+  //gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
 
   return TRUE;
 

@@ -44,6 +44,8 @@ struct _GstMirMeta {
   GstMirSink *sink;
 
   size_t size;
+  /* Are we doing hardware rendering? */
+  gboolean hardware_rendering;
 };
 
 /* buffer pool functions */
@@ -67,6 +69,8 @@ struct _GstMirBufferPool
   GstAllocationParams params;
   SurfaceTextureClientHybris surface_texture_client;
   MediaCodecDelegate *codec_delegate;
+  /* Are we doing hardware rendering? */
+  gboolean hardware_rendering;
 };
 
 struct _GstMirBufferPoolClass
@@ -78,6 +82,8 @@ GType gst_mir_buffer_pool_get_type (void);
 
 GstBufferPool *gst_mir_buffer_pool_new (GstMirSink * mirsink);
 void gst_mir_buffer_pool_set_surface_texture_client (GstBufferPool * pool, SurfaceTextureClientHybris sfc);
+void gst_mir_buffer_pool_set_hardware_rendering (GstBufferPool * pool, gboolean do_hardware_rendering);
+gboolean gst_mir_buffer_pool_get_hardware_rendering (GstMirBufferPool * mpool);
 void gst_mir_buffer_pool_set_codec_delegate (GstBufferPool * pool, MediaCodecDelegate *delegate);
 
 G_END_DECLS

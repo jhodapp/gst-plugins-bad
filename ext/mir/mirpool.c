@@ -162,6 +162,8 @@ gst_buffer_add_mir_meta (GstBuffer * buffer, GstMirBufferPool * mpool)
   mmeta->sink = gst_object_ref (sink);
 
   mmeta->size = size;
+  mmeta->hardware_rendering =
+      gst_mir_buffer_pool_get_hardware_rendering (mpool);
 
   return mmeta;
 }
@@ -213,26 +215,26 @@ gst_mir_allocate_native_window_buffer (GstBufferPool * pool,
           "Allocating new Mir image, height: %d, width: %d, size: %d", height,
           width, size);
 
-      /* A fallback to make sure we have a size */
+      /* A fallback to make sure we have a size (taken from OMXCodec.cpp
+       * in the JB 4.2 sources)
+       */
       if (size == 0)
-        size = height * width;
+        size = (height * width * 3) / 2;
 
       stride = size / height;
       size = stride * height;
 
       GST_WARNING_OBJECT (m_pool, "stride: %d, size: %d", stride, size);
 
-      //if (m_pool->sink->surface_texture_client) {
       buffer_id = 0;
 
       GST_WARNING_OBJECT (m_pool, "Allocating new buffer memory of size: %d",
           size);
       mem =
           gst_mir_image_allocator_wrap (allocator, m_pool->codec_delegate,
-          buffer_id, flags, size, NULL, NULL);
+          buffer_id, flags, size, m_pool->hardware_rendering, NULL, NULL);
       if (mem == NULL)
         GST_WARNING_OBJECT (m_pool, "mem is NULL!");
-      //}
 
       break;
     }
@@ -329,7 +331,7 @@ gst_mir_buffer_pool_release_buffer (GstBufferPool * pool, GstBuffer * buffer)
   /* Render and release the output buffer back to the decoder */
   err =
       media_codec_release_output_buffer (delegate,
-      gst_mir_image_memory_get_buffer_index (mem));
+      gst_mir_image_memory_get_buffer_index (mem), TRUE);
   if (err < 0)
     GST_WARNING_OBJECT (pool,
         "Failed to release output buffer. Rendering will probably be affected (err: %d).",
@@ -364,10 +366,33 @@ gst_mir_buffer_pool_set_surface_texture_client (GstBufferPool * pool,
 }
 
 void
+gst_mir_buffer_pool_set_hardware_rendering (GstBufferPool * pool,
+    gboolean do_hardware_rendering)
+{
+  GstMirBufferPool *m_pool = NULL;
+  g_return_if_fail (GST_IS_MIR_BUFFER_POOL (pool));
+
+  m_pool = GST_MIR_BUFFER_POOL_CAST (pool);
+
+  GST_DEBUG_OBJECT (m_pool, "%s", __PRETTY_FUNCTION__);
+  m_pool->hardware_rendering = do_hardware_rendering;
+}
+
+gboolean
+gst_mir_buffer_pool_get_hardware_rendering (GstMirBufferPool * mpool)
+{
+  g_return_val_if_fail (mpool != NULL, FALSE);
+  return mpool->hardware_rendering;
+}
+
+void
 gst_mir_buffer_pool_set_codec_delegate (GstBufferPool * pool,
     MediaCodecDelegate * delegate)
 {
-  GstMirBufferPool *m_pool = GST_MIR_BUFFER_POOL_CAST (pool);
+  GstMirBufferPool *m_pool = NULL;
+  g_return_if_fail (GST_IS_MIR_BUFFER_POOL (pool));
+
+  m_pool = GST_MIR_BUFFER_POOL_CAST (pool);
 
   GST_DEBUG_OBJECT (m_pool, "%s", __PRETTY_FUNCTION__);
   m_pool->codec_delegate = delegate;
@@ -391,6 +416,10 @@ gst_mir_buffer_pool_init (GstMirBufferPool * pool)
 {
   GST_DEBUG_CATEGORY_INIT (gstmirbufferpool_debug, "mirbufferpool", 0,
       " mir buffer pool");
+
+  pool->surface_texture_client = NULL;
+  pool->codec_delegate = NULL;
+  pool->hardware_rendering = FALSE;
 }
 
 static void
