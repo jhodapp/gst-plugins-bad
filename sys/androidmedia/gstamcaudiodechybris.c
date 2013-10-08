@@ -667,7 +667,7 @@ retry:
   }
 
 done:
-  if (!gst_amc_codec_release_output_buffer (self->codec, idx))
+  if (!gst_amc_codec_release_output_buffer (self->codec, idx, TRUE))
     goto failed_release;
 
   if (is_eos || flow_ret == GST_FLOW_EOS) {

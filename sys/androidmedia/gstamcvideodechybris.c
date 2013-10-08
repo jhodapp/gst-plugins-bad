@@ -817,6 +817,8 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
   GstVideoInfo *info = &state->info;
   gboolean ret = FALSE;
+  GstMemory *mem = { NULL };
+  gboolean do_hardware_rendering = FALSE;
   gint err = 0;
 
   GST_DEBUG_OBJECT (self, "%s", __PRETTY_FUNCTION__);
@@ -837,301 +839,334 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       "buffer_info->size: %d, gst_buffer_get_size (outbuf): %d",
       buffer_info->size, gst_buffer_get_size (outbuf));
 
+  if (gst_buffer_n_memory (outbuf) >= 1 &&
+      (mem = gst_buffer_peek_memory (outbuf, 0))
+      && gst_is_mir_image_memory (mem)) {
+
+    GST_DEBUG_OBJECT (self, "It is Mir image memory");
+    do_hardware_rendering = gst_mir_do_hardware_render (mem);
+  }
+
+  GST_DEBUG_OBJECT (self, "hardware_rendering: %d", do_hardware_rendering);
+
   /* Same video format */
-  if (buffer_info->size == 0 && gst_buffer_get_size (outbuf) > 0) {
-    GstMemory *mem = { NULL };
-    GST_DEBUG_OBJECT (self, "Doing hardware rendering");
+  if (do_hardware_rendering
+      && buffer_info->size == 0 && gst_buffer_get_size (outbuf) > 0) {
 
-    if (gst_buffer_n_memory (outbuf) >= 1 &&
-        (mem = gst_buffer_peek_memory (outbuf, 0))
-        && gst_is_mir_image_memory (mem)) {
-
-      GST_DEBUG_OBJECT (self, "It is Mir image memory");
+    if (gst_buffer_n_memory (outbuf) >= 1 && gst_is_mir_image_memory (mem)) {
+      GST_DEBUG_OBJECT (self, "Doing hardware rendering");
       GST_DEBUG_OBJECT (self, "gst_mir_image_memory_get_codec: %p",
           self->codec->codec_delegate);
-    } else if (buffer_info->size == gst_buffer_get_size (outbuf)) {
-      GstMapInfo minfo;
-      GST_DEBUG_OBJECT (self, "Doing fast software rendering");
 
-      gst_buffer_map (outbuf, &minfo, GST_MAP_WRITE);
-      orc_memcpy (minfo.data, buf->data + buffer_info->offset,
-          buffer_info->size);
-      gst_buffer_unmap (outbuf, &minfo);
+      ret = TRUE;
+      goto done;
     }
+  } else if (!do_hardware_rendering) {
+    //&& buffer_info->size == gst_buffer_get_size (outbuf)) {
+    GstMapInfo minfo;
+    GST_DEBUG_OBJECT (self, "Doing fast software rendering");
+
+    gst_buffer_map (outbuf, &minfo, GST_MAP_WRITE);
+    orc_memcpy (minfo.data, buf->data + buffer_info->offset, buffer_info->size);
+    gst_buffer_unmap (outbuf, &minfo);
+
     ret = TRUE;
-    goto done;
-  }
+  } else {
+    /* Disabled for now since this plugin does not support non-hardware accelerated
+     * video rendering at the moment.
+     */
+    GST_DEBUG_OBJECT (self,
+        "Doing slow software line-by-line copying with format conversion");
 
-  /* Disabled for now since this plugin does not support non-hardware accelerated
-   * video rendering at the moment.
-   */
-  GST_DEBUG_OBJECT (self, "Doing slow software line-by-line copying");
+    /* Different video format, try to convert */
+    switch (self->color_format) {
+      case COLOR_FormatYUV420Planar:{
+        GstVideoFrame vframe;
+        gint i, j, height;
+        guint8 *src, *dest;
+        gint stride, slice_height;
+        gint src_stride, dest_stride;
+        gint row_length;
 
-  /* Different video format, try to convert */
-  switch (self->color_format) {
-    case COLOR_FormatYUV420Planar:{
-      GstVideoFrame vframe;
-      gint i, j, height;
-      guint8 *src, *dest;
-      gint stride, slice_height;
-      gint src_stride, dest_stride;
-      gint row_length;
-
-      stride = self->stride;
-      if (stride == 0) {
-        GST_ERROR_OBJECT (self, "Stride not set");
-        goto done;
-      }
-
-      slice_height = self->slice_height;
-      if (slice_height == 0) {
-        /* NVidia Tegra 3 on Nexus 7 does not set this */
-        if (g_str_has_prefix (klass->codec_info->name, "OMX.Nvidia.")) {
-          slice_height = GST_ROUND_UP_32 (self->height);
-        } else {
-          GST_ERROR_OBJECT (self, "Slice height not set");
+        stride = self->stride;
+        if (stride == 0) {
+          GST_ERROR_OBJECT (self, "Stride not set");
           goto done;
         }
-      }
 
-      gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
-      for (i = 0; i < 3; i++) {
-        if (i == 0) {
-          src_stride = stride;
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        } else {
-          src_stride = (stride + 1) / 2;
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        }
-
-        src = buf->data + buffer_info->offset;
-
-        if (i == 0) {
-          src += self->crop_top * stride;
-          src += self->crop_left;
-          row_length = self->width;
-        } else if (i > 0) {
-          /* skip the Y plane */
-          src += slice_height * stride;
-
-          /* crop_top/crop_left divided by two
-           * because one byte of the U/V planes
-           * corresponds to two pixels horizontally/vertically */
-          src += self->crop_top / 2 * src_stride;
-          src += self->crop_left / 2;
-          row_length = (self->width + 1) / 2;
-        }
-        if (i == 2) {
-          /* skip the U plane */
-          src += ((slice_height + 1) / 2) * ((stride + 1) / 2);
-        }
-
-        dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
-        height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
-
-        for (j = 0; j < height; j++) {
-          orc_memcpy (dest, src, row_length);
-          src += src_stride;
-          dest += dest_stride;
-        }
-      }
-      gst_video_frame_unmap (&vframe);
-      ret = TRUE;
-      break;
-    }
-    case COLOR_TI_FormatYUV420PackedSemiPlanar:
-    case COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced:{
-      gint i, j, height;
-      guint8 *src, *dest;
-      gint src_stride, dest_stride;
-      gint row_length;
-      GstVideoFrame vframe;
-
-      /* This should always be set */
-      if (self->stride == 0 || self->slice_height == 0) {
-        GST_ERROR_OBJECT (self, "Stride or slice height not set");
-        goto done;
-      }
-
-      /* FIXME: This does not work for odd widths or heights
-       * but might as well be a bug in the codec */
-      gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
-      for (i = 0; i < 2; i++) {
-        if (i == 0) {
-          src_stride = self->stride;
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        } else {
-          src_stride = GST_ROUND_UP_2 (self->stride);
-          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-        }
-
-        src = buf->data + buffer_info->offset;
-        if (i == 0) {
-          row_length = self->width;
-        } else if (i == 1) {
-          src += (self->slice_height - self->crop_top / 2) * self->stride;
-          row_length = GST_ROUND_UP_2 (self->width);
-        }
-
-        dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
-        height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
-
-        for (j = 0; j < height; j++) {
-          orc_memcpy (dest, src, row_length);
-          src += src_stride;
-          dest += dest_stride;
-        }
-      }
-      gst_video_frame_unmap (&vframe);
-      ret = TRUE;
-      break;
-    }
-    case COLOR_QCOM_FormatYUV420SemiPlanar:
-    case COLOR_FormatYUV420SemiPlanar:{
-      gint i, j, height;
-      guint8 *src, *dest;
-      gint src_stride, dest_stride, fixed_stride;
-      gint row_length;
-      GstVideoFrame vframe;
-
-      /* This should always be set */
-      if (self->stride == 0 || self->slice_height == 0) {
-        GST_ERROR_OBJECT (self, "Stride or slice height not set");
-        goto done;
-      }
-
-      /* Samsung Galaxy S3 seems to report wrong strides.
-         I.e. BigBuckBunny 854x480 H264 reports a stride of 864 when it is
-         actually 854, so we use width instead of stride here.
-         This is obviously bound to break in the future. */
-      if (g_str_has_prefix (klass->codec_info->name, "OMX.SEC.")) {
-        fixed_stride = self->width;
-      } else {
-        fixed_stride = self->stride;
-      }
-
-      gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
-
-      for (i = 0; i < 2; i++) {
-        src_stride = fixed_stride;
-        dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
-
-        src = buf->data + buffer_info->offset;
-        if (i == 0) {
-          src += self->crop_top * fixed_stride;
-          src += self->crop_left;
-          row_length = self->width;
-        } else if (i == 1) {
-          src += self->slice_height * fixed_stride;
-          src += self->crop_top * fixed_stride;
-          src += self->crop_left;
-          row_length = self->width;
-        }
-
-        dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
-        height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
-
-        for (j = 0; j < height; j++) {
-          orc_memcpy (dest, src, row_length);
-          src += src_stride;
-          dest += dest_stride;
-        }
-      }
-      gst_video_frame_unmap (&vframe);
-      ret = TRUE;
-      break;
-    }
-      /* FIXME: This should be in libgstvideo as MT12 or similar, see v4l2 */
-    case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
-      GstVideoFrame vframe;
-      gint width = self->width;
-      gint height = self->height;
-      gint dest_luma_stride, dest_chroma_stride;
-      guint8 *src = buf->data + buffer_info->offset;
-      guint8 *dest_luma, *dest_chroma;
-      gint y;
-      const size_t tile_w = (width - 1) / TILE_WIDTH + 1;
-      const size_t tile_w_align = (tile_w + 1) & ~1;
-      const size_t tile_h_luma = (height - 1) / TILE_HEIGHT + 1;
-      const size_t tile_h_chroma = (height / 2 - 1) / TILE_HEIGHT + 1;
-      size_t luma_size = tile_w_align * tile_h_luma * TILE_SIZE;
-
-      gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
-      dest_luma = GST_VIDEO_FRAME_PLANE_DATA (&vframe, 0);
-      dest_chroma = GST_VIDEO_FRAME_PLANE_DATA (&vframe, 1);
-      dest_luma_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, 0);
-      dest_chroma_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, 1);
-
-      if ((luma_size % TILE_GROUP_SIZE) != 0)
-        luma_size = (((luma_size - 1) / TILE_GROUP_SIZE) + 1) * TILE_GROUP_SIZE;
-
-      for (y = 0; y < tile_h_luma; y++) {
-        size_t row_width = width;
-        gint x;
-
-        for (x = 0; x < tile_w; x++) {
-          size_t tile_width = row_width;
-          size_t tile_height = height;
-          gint luma_idx;
-          gint chroma_idx;
-          /* luma source pointer for this tile */
-          const uint8_t *src_luma = src
-              + tile_pos (x, y, tile_w_align, tile_h_luma) * TILE_SIZE;
-
-          /* chroma source pointer for this tile */
-          const uint8_t *src_chroma = src + luma_size
-              + tile_pos (x, y / 2, tile_w_align, tile_h_chroma) * TILE_SIZE;
-          if (y & 1)
-            src_chroma += TILE_SIZE / 2;
-
-          /* account for right columns */
-          if (tile_width > TILE_WIDTH)
-            tile_width = TILE_WIDTH;
-
-          /* account for bottom rows */
-          if (tile_height > TILE_HEIGHT)
-            tile_height = TILE_HEIGHT;
-
-          /* dest luma memory index for this tile */
-          luma_idx = y * TILE_HEIGHT * dest_luma_stride + x * TILE_WIDTH;
-
-          /* dest chroma memory index for this tile */
-          /* XXX: remove divisions */
-          chroma_idx =
-              y * TILE_HEIGHT / 2 * dest_chroma_stride + x * TILE_WIDTH;
-
-          tile_height /= 2;     // we copy 2 luma lines at once
-          while (tile_height--) {
-            memcpy (dest_luma + luma_idx, src_luma, tile_width);
-            src_luma += TILE_WIDTH;
-            luma_idx += dest_luma_stride;
-
-            memcpy (dest_luma + luma_idx, src_luma, tile_width);
-            src_luma += TILE_WIDTH;
-            luma_idx += dest_luma_stride;
-
-            memcpy (dest_chroma + chroma_idx, src_chroma, tile_width);
-            src_chroma += TILE_WIDTH;
-            chroma_idx += dest_chroma_stride;
+        slice_height = self->slice_height;
+        if (slice_height == 0) {
+          /* NVidia Tegra 3 on Nexus 7 does not set this */
+          if (g_str_has_prefix (klass->codec_info->name, "OMX.Nvidia.")) {
+            slice_height = GST_ROUND_UP_32 (self->height);
+          } else {
+            GST_ERROR_OBJECT (self, "Slice height not set");
+            goto done;
           }
-          row_width -= TILE_WIDTH;
         }
-        height -= TILE_HEIGHT;
-      }
-      gst_video_frame_unmap (&vframe);
-      ret = TRUE;
-      break;
 
+        gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
+        for (i = 0; i < 3; i++) {
+          if (i == 0) {
+            src_stride = stride;
+            dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
+          } else {
+            src_stride = (stride + 1) / 2;
+            dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
+          }
+
+          src = buf->data + buffer_info->offset;
+
+          if (i == 0) {
+            src += self->crop_top * stride;
+            src += self->crop_left;
+            row_length = self->width;
+          } else if (i > 0) {
+            /* skip the Y plane */
+            src += slice_height * stride;
+
+            /* crop_top/crop_left divided by two
+             * because one byte of the U/V planes
+             * corresponds to two pixels horizontally/vertically */
+            src += self->crop_top / 2 * src_stride;
+            src += self->crop_left / 2;
+            row_length = (self->width + 1) / 2;
+          }
+          if (i == 2) {
+            /* skip the U plane */
+            src += ((slice_height + 1) / 2) * ((stride + 1) / 2);
+          }
+
+          dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
+          height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
+
+          for (j = 0; j < height; j++) {
+            orc_memcpy (dest, src, row_length);
+            src += src_stride;
+            dest += dest_stride;
+          }
+        }
+        gst_video_frame_unmap (&vframe);
+        ret = TRUE;
+        break;
+      }
+      case COLOR_TI_COLOR_FormatYUV420PackedSemiPlanar:
+      case COLOR_TI_FormatYUV420PackedSemiPlanar:
+      case COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced:{
+        gint i, j, height;
+        guint8 *src, *dest;
+        gint src_stride, dest_stride;
+        gint row_length;
+        GstVideoFrame vframe;
+
+        GST_DEBUG_OBJECT (self,
+            "COLOR_TI_COLOR_FormatYUV420PackedSemiPlanar conversion");
+
+        /* This should always be set */
+        if (self->stride == 0 || self->slice_height == 0) {
+          GST_ERROR_OBJECT (self, "Stride or slice height not set");
+          goto done;
+        }
+
+        GST_DEBUG_OBJECT (self, "Mapping outbuf");
+        /* FIXME: This does not work for odd widths or heights
+         * but might as well be a bug in the codec */
+        gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
+        GST_DEBUG_OBJECT (self, "Mapped outbuf");
+        for (i = 0; i < 2; i++) {
+          if (i == 0) {
+            src_stride = self->stride;
+            GST_DEBUG_OBJECT (self, "HERE1");
+            dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
+          } else {
+            src_stride = GST_ROUND_UP_2 (self->stride);
+            GST_DEBUG_OBJECT (self, "HERE2");
+            dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
+          }
+
+          src = buf->data + buffer_info->offset;
+          GST_DEBUG_OBJECT (self, "buf->data: %p, buffer_info->offset: %d",
+              buf->data, buffer_info->offset);
+          GST_DEBUG_OBJECT (self, "buf->size: %d", buf->size);
+          if (i == 0) {
+            GST_DEBUG_OBJECT (self, "HERE3");
+            row_length = self->width;
+          } else if (i == 1) {
+            GST_DEBUG_OBJECT (self, "HERE4");
+            src += (self->slice_height - self->crop_top / 2) * self->stride;
+            row_length = GST_ROUND_UP_2 (self->width);
+          }
+
+          dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
+          height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
+          GST_DEBUG_OBJECT (self, "HERE5");
+
+          for (j = 0; j < height; j++) {
+            GST_DEBUG_OBJECT (self,
+                "Copying data row (dest: %p, src: %p, row_length: %d", dest,
+                src, row_length);
+            orc_memcpy (dest, src, row_length);
+            src += src_stride;
+            dest += dest_stride;
+            GST_DEBUG_OBJECT (self,
+                "Finished copying data row (src_stride: %d, dst_stride: %d",
+                src_stride, dest_stride);
+          }
+        }
+        GST_DEBUG_OBJECT (self, "Unmapping outbuf");
+        gst_video_frame_unmap (&vframe);
+        ret = TRUE;
+        break;
+      }
+      case COLOR_QCOM_FormatYUV420SemiPlanar:
+      case COLOR_FormatYUV420SemiPlanar:{
+        gint i, j, height;
+        guint8 *src, *dest;
+        gint src_stride, dest_stride, fixed_stride;
+        gint row_length;
+        GstVideoFrame vframe;
+
+        /* This should always be set */
+        if (self->stride == 0 || self->slice_height == 0) {
+          GST_ERROR_OBJECT (self, "Stride or slice height not set");
+          goto done;
+        }
+
+        /* Samsung Galaxy S3 seems to report wrong strides.
+           I.e. BigBuckBunny 854x480 H264 reports a stride of 864 when it is
+           actually 854, so we use width instead of stride here.
+           This is obviously bound to break in the future. */
+        if (g_str_has_prefix (klass->codec_info->name, "OMX.SEC.")) {
+          fixed_stride = self->width;
+        } else {
+          fixed_stride = self->stride;
+        }
+
+        gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
+
+        for (i = 0; i < 2; i++) {
+          src_stride = fixed_stride;
+          dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
+
+          src = buf->data + buffer_info->offset;
+          if (i == 0) {
+            src += self->crop_top * fixed_stride;
+            src += self->crop_left;
+            row_length = self->width;
+          } else if (i == 1) {
+            src += self->slice_height * fixed_stride;
+            src += self->crop_top * fixed_stride;
+            src += self->crop_left;
+            row_length = self->width;
+          }
+
+          dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
+          height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
+
+          for (j = 0; j < height; j++) {
+            orc_memcpy (dest, src, row_length);
+            src += src_stride;
+            dest += dest_stride;
+          }
+        }
+        gst_video_frame_unmap (&vframe);
+        ret = TRUE;
+        break;
+      }
+        /* FIXME: This should be in libgstvideo as MT12 or similar, see v4l2 */
+      case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
+        GstVideoFrame vframe;
+        gint width = self->width;
+        gint height = self->height;
+        gint dest_luma_stride, dest_chroma_stride;
+        guint8 *src = buf->data + buffer_info->offset;
+        guint8 *dest_luma, *dest_chroma;
+        gint y;
+        const size_t tile_w = (width - 1) / TILE_WIDTH + 1;
+        const size_t tile_w_align = (tile_w + 1) & ~1;
+        const size_t tile_h_luma = (height - 1) / TILE_HEIGHT + 1;
+        const size_t tile_h_chroma = (height / 2 - 1) / TILE_HEIGHT + 1;
+        size_t luma_size = tile_w_align * tile_h_luma * TILE_SIZE;
+
+        gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
+        dest_luma = GST_VIDEO_FRAME_PLANE_DATA (&vframe, 0);
+        dest_chroma = GST_VIDEO_FRAME_PLANE_DATA (&vframe, 1);
+        dest_luma_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, 0);
+        dest_chroma_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, 1);
+
+        if ((luma_size % TILE_GROUP_SIZE) != 0)
+          luma_size =
+              (((luma_size - 1) / TILE_GROUP_SIZE) + 1) * TILE_GROUP_SIZE;
+
+        for (y = 0; y < tile_h_luma; y++) {
+          size_t row_width = width;
+          gint x;
+
+          for (x = 0; x < tile_w; x++) {
+            size_t tile_width = row_width;
+            size_t tile_height = height;
+            gint luma_idx;
+            gint chroma_idx;
+            /* luma source pointer for this tile */
+            const uint8_t *src_luma = src
+                + tile_pos (x, y, tile_w_align, tile_h_luma) * TILE_SIZE;
+
+            /* chroma source pointer for this tile */
+            const uint8_t *src_chroma = src + luma_size
+                + tile_pos (x, y / 2, tile_w_align, tile_h_chroma) * TILE_SIZE;
+            if (y & 1)
+              src_chroma += TILE_SIZE / 2;
+
+            /* account for right columns */
+            if (tile_width > TILE_WIDTH)
+              tile_width = TILE_WIDTH;
+
+            /* account for bottom rows */
+            if (tile_height > TILE_HEIGHT)
+              tile_height = TILE_HEIGHT;
+
+            /* dest luma memory index for this tile */
+            luma_idx = y * TILE_HEIGHT * dest_luma_stride + x * TILE_WIDTH;
+
+            /* dest chroma memory index for this tile */
+            /* XXX: remove divisions */
+            chroma_idx =
+                y * TILE_HEIGHT / 2 * dest_chroma_stride + x * TILE_WIDTH;
+
+            tile_height /= 2;   // we copy 2 luma lines at once
+            while (tile_height--) {
+              memcpy (dest_luma + luma_idx, src_luma, tile_width);
+              src_luma += TILE_WIDTH;
+              luma_idx += dest_luma_stride;
+
+              memcpy (dest_luma + luma_idx, src_luma, tile_width);
+              src_luma += TILE_WIDTH;
+              luma_idx += dest_luma_stride;
+
+              memcpy (dest_chroma + chroma_idx, src_chroma, tile_width);
+              src_chroma += TILE_WIDTH;
+              chroma_idx += dest_chroma_stride;
+            }
+            row_width -= TILE_WIDTH;
+          }
+          height -= TILE_HEIGHT;
+        }
+        gst_video_frame_unmap (&vframe);
+        ret = TRUE;
+        break;
+
+      }
+      default:
+        GST_ERROR_OBJECT (self, "Unsupported color format %d",
+            self->color_format);
+        goto done;
+        break;
     }
-    default:
-      GST_ERROR_OBJECT (self, "Unsupported color format %d",
-          self->color_format);
-      goto done;
-      break;
   }
 
-  /* Render and release the output buffer back to the decoder */
-  err = media_codec_release_output_buffer (self->codec->codec_delegate, 0);
+  /* Just release the output buffer back to the decoder */
+  err =
+      media_codec_release_output_buffer (self->codec->codec_delegate, 0, FALSE);
   if (err < 0)
     GST_WARNING_OBJECT (self,
         "Failed to release output buffer. Rendering will probably be affected (err: %d).",
@@ -1143,8 +1178,12 @@ done:
 }
 
 static gboolean
-gst_amc_video_dec_configure_self (GstAmcVideoDec * self)
+gst_amc_video_dec_configure_self (GstVideoDecoder * decoder)
 {
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+
+  g_return_val_if_fail (decoder != NULL, FALSE);
+
   /* Configure the hardware decoder */
   if (!gst_amc_codec_configure (self->codec, self->dec_format, NULL, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
@@ -1327,7 +1366,7 @@ retry:
 
     if (!gst_amc_video_dec_fill_buffer (self, idx, &buffer_info, outbuf)) {
       gst_buffer_unref (outbuf);
-      if (!gst_amc_codec_release_output_buffer (self->codec, idx))
+      if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
         GST_ERROR_OBJECT (self, "Failed to release output buffer index %d",
             idx);
       goto invalid_buffer;
@@ -1352,7 +1391,7 @@ retry:
             frame->output_buffer)) {
       gst_buffer_replace (&frame->output_buffer, NULL);
       gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
-      if (!gst_amc_codec_release_output_buffer (self->codec, idx))
+      if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
         GST_ERROR_OBJECT (self, "Failed to release output buffer index %d",
             idx);
       goto invalid_buffer;
@@ -1627,7 +1666,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 */
 
   /* Configure the hardware codec with format */
-  ret = gst_amc_video_dec_configure_self (self);
+  ret = gst_amc_video_dec_configure_self (decoder);
   GST_DEBUG_OBJECT (self, "gst_amc_video_dec_configure_self returned: %d", ret);
 
   gst_amc_format_free (format);

@@ -93,6 +93,8 @@ enum
   COLOR_Format24BitARGB6666 = 42,
   COLOR_Format24BitABGR6666 = 43,
   COLOR_FormatAndroidOpaque = 0x7F000789,
+  /* From hardware/ti/omap4xxx/domx/omx_core/inc/OMX_TI_IVCommon.h */
+  COLOR_TI_COLOR_FormatYUV420PackedSemiPlanar = 0x100,
   COLOR_TI_FormatYUV420PackedSemiPlanar = 0x7f000100,
   COLOR_QCOM_FormatYUV420SemiPlanar = 0x7fa30c00,
   COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka = 0x7fa30c03,

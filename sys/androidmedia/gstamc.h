@@ -161,8 +161,11 @@ gint gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs);
 gint gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec, GstAmcBufferInfo *info, gint64 timeoutUs);
 
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index, const GstAmcBufferInfo *info);
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index, gboolean render);
+#else
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
-
+#endif
 
 GstAmcFormat * gst_amc_format_new_audio (const gchar *mime, gint sample_rate, gint channels);
 GstAmcFormat * gst_amc_format_new_video (const gchar *mime, gint width, gint height);
@@ -180,6 +183,8 @@ gboolean gst_amc_format_get_string (GstAmcFormat *format, const gchar *key, gcha
 void gst_amc_format_set_string (GstAmcFormat *format, const gchar *key, const gchar *value);
 gboolean gst_amc_format_get_buffer (GstAmcFormat *format, const gchar *key, guint8 **data, gsize *size);
 void gst_amc_format_set_buffer (GstAmcFormat *format, const gchar *key, guint8 *data, gsize size);
+
+void gst_amc_surface_texture_client_set_hardware_rendering (gboolean hardware_rendering);
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
 gint gst_amc_video_format_to_color_format (GstVideoFormat video_format);
