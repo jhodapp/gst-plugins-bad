@@ -500,8 +500,6 @@ gst_amc_video_dec_init (GstAmcVideoDec * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
-
-  self->dec_format = NULL;
 }
 
 static gboolean
@@ -548,8 +546,6 @@ static void
 gst_amc_video_dec_finalize (GObject * object)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (object);
-
-  gst_amc_format_free (self->dec_format);
 
   g_mutex_clear (&self->drain_lock);
   g_cond_clear (&self->drain_cond);
@@ -1178,14 +1174,16 @@ done:
 }
 
 static gboolean
-gst_amc_video_dec_configure_self (GstVideoDecoder * decoder)
+gst_amc_video_dec_configure_self (GstVideoDecoder * decoder,
+    GstAmcFormat * format)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
 
   g_return_val_if_fail (decoder != NULL, FALSE);
+  g_return_val_if_fail (format != NULL, FALSE);
 
   /* Configure the hardware decoder */
-  if (!gst_amc_codec_configure (self->codec, self->dec_format, NULL, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, NULL, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1651,8 +1649,6 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     GST_ERROR_OBJECT (self, "Failed to create video format");
     return FALSE;
   }
-  /* FIXME: New fix */
-  self->dec_format = format;
 
   /* FIXME: This buffer needs to be valid until the codec is stopped again */
   if (self->codec_data)
@@ -1666,10 +1662,13 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 */
 
   /* Configure the hardware codec with format */
-  ret = gst_amc_video_dec_configure_self (decoder);
-  GST_DEBUG_OBJECT (self, "gst_amc_video_dec_configure_self returned: %d", ret);
+  ret = gst_amc_video_dec_configure_self (decoder, format);
+  if (!ret) {
+    goto failed_configure;
+  }
 
   gst_amc_format_free (format);
+  format = NULL;
 
   self->started = TRUE;
   self->input_state = gst_video_codec_state_ref (state);
@@ -1681,7 +1680,13 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
       (GstTaskFunction) gst_amc_video_dec_loop, decoder, NULL);
 
-  return TRUE;
+  return ret;
+
+failed_configure:
+  GST_ERROR_OBJECT (self, "Failed to configure hardware codec");
+  gst_amc_format_free (format);
+  format = NULL;
+  return FALSE;
 }
 
 static gboolean
