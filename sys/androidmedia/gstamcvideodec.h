@@ -51,7 +51,6 @@ struct _GstAmcVideoDec
 
   /* < private > */
   GstAmcCodec *codec;
-  GstAmcFormat *dec_format;
   GstAmcBuffer *input_buffers, *output_buffers;
   gsize n_input_buffers, n_output_buffers;
 
