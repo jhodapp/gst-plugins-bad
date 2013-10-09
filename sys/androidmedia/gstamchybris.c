@@ -241,11 +241,12 @@ void
 gst_amc_codec_free (GstAmcCodec * codec)
 {
   g_return_if_fail (codec != NULL);
+  g_return_if_fail (codec->codec_delegate != NULL);
 
   GST_DEBUG ("%s", __PRETTY_FUNCTION__);
 
+  // Cleanup the hardware decoder's resources
   media_codec_delegate_unref (codec->codec_delegate);
-  media_codec_delegate_destroy (codec->codec_delegate);
 
   g_slice_free (GstAmcCodec, codec);
 }
