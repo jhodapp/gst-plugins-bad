@@ -1008,7 +1008,6 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
 #endif
           }
         }
-        GST_DEBUG_OBJECT (self, "Unmapping outbuf");
         gst_video_frame_unmap (&vframe);
         ret = TRUE;
         break;

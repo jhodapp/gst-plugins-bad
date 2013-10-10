@@ -34,7 +34,7 @@ libgstandroidmedia_la_LIBADD = \
 	$(GST_LIBS) \
 	$(ORC_LIBS) \
 	-lmedia \
-	-lubuntu_application_api \
+	-lubuntu_application_api_mirclient \
 	$(top_builddir)/gst-libs/gst/mir/libgstmiralloc-@GST_API_VERSION@.la
 libgstandroidmedia_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstandroidmedia_la_LIBTOOLFLAGS = $(GST_PLUGIN_LIBTOOLFLAGS)
