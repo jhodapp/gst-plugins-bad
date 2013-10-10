@@ -857,8 +857,8 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       ret = TRUE;
       goto done;
     }
-  } else if (!do_hardware_rendering) {
-    //&& buffer_info->size == gst_buffer_get_size (outbuf)) {
+  } else if (!do_hardware_rendering
+      && buffer_info->size == gst_buffer_get_size (outbuf)) {
     GstMapInfo minfo;
     GST_DEBUG_OBJECT (self, "Doing fast software rendering");
 
@@ -964,49 +964,48 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
           goto done;
         }
 
-        GST_DEBUG_OBJECT (self, "Mapping outbuf");
         /* FIXME: This does not work for odd widths or heights
          * but might as well be a bug in the codec */
         gst_video_frame_map (&vframe, info, outbuf, GST_MAP_WRITE);
-        GST_DEBUG_OBJECT (self, "Mapped outbuf");
         for (i = 0; i < 2; i++) {
           if (i == 0) {
             src_stride = self->stride;
-            GST_DEBUG_OBJECT (self, "HERE1");
             dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
           } else {
             src_stride = GST_ROUND_UP_2 (self->stride);
-            GST_DEBUG_OBJECT (self, "HERE2");
             dest_stride = GST_VIDEO_FRAME_COMP_STRIDE (&vframe, i);
           }
 
           src = buf->data + buffer_info->offset;
+#if 0
           GST_DEBUG_OBJECT (self, "buf->data: %p, buffer_info->offset: %d",
               buf->data, buffer_info->offset);
           GST_DEBUG_OBJECT (self, "buf->size: %d", buf->size);
+#endif
           if (i == 0) {
-            GST_DEBUG_OBJECT (self, "HERE3");
             row_length = self->width;
           } else if (i == 1) {
-            GST_DEBUG_OBJECT (self, "HERE4");
             src += (self->slice_height - self->crop_top / 2) * self->stride;
             row_length = GST_ROUND_UP_2 (self->width);
           }
 
           dest = GST_VIDEO_FRAME_COMP_DATA (&vframe, i);
           height = GST_VIDEO_FRAME_COMP_HEIGHT (&vframe, i);
-          GST_DEBUG_OBJECT (self, "HERE5");
 
           for (j = 0; j < height; j++) {
+#if 0
             GST_DEBUG_OBJECT (self,
                 "Copying data row (dest: %p, src: %p, row_length: %d", dest,
                 src, row_length);
+#endif
             orc_memcpy (dest, src, row_length);
             src += src_stride;
             dest += dest_stride;
+#if 0
             GST_DEBUG_OBJECT (self,
                 "Finished copying data row (src_stride: %d, dst_stride: %d",
                 src_stride, dest_stride);
+#endif
           }
         }
         GST_DEBUG_OBJECT (self, "Unmapping outbuf");
@@ -1375,7 +1374,7 @@ retry:
         1);
     flow_ret = gst_pad_push (GST_VIDEO_DECODER_SRC_PAD (self), outbuf);
   } else if (buffer_info.size >= 0 && is_eos == FALSE) {
-    GST_DEBUG_OBJECT (self, "Should be allocating buffer from custom pool");
+    GST_DEBUG_OBJECT (self, "Allocating buffer from pool");
     /* Allocate buffer from the GstBufferPool */
     if ((flow_ret = gst_video_decoder_allocate_output_frame (GST_VIDEO_DECODER
                 (self), frame)) != GST_FLOW_OK) {
