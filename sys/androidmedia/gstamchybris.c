@@ -98,6 +98,11 @@ create_session (void)
   u_application_description_set_application_lifecycle_delegate
       (session->app_description, session->app_lifecycle_delegate);
 
+  /* Required by Mir */
+  session->app_id = u_application_id_new_from_stringn ("gstamc", 6);
+  u_application_description_set_application_id (session->app_description,
+      session->app_id);
+
   /* The UA requires a command line option set, so give it a fake argv array */
   argv[0][0] = '\n';
   session->app_options =
