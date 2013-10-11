@@ -61,7 +61,7 @@ static struct ua_display *
 create_display (void)
 {
   struct ua_display *display;
-  display = malloc (sizeof *display);
+  display = malloc (sizeof (struct ua_display));
 
   display->display = ua_ui_display_new_with_index (0);
   if (display->display == NULL) {
@@ -82,7 +82,7 @@ create_session (void)
 {
   struct ua_session *session;
   char argv[1][1];
-  session = malloc (sizeof *session);
+  session = malloc (sizeof (struct ua_session));
 
   session->properties = ua_ui_session_properties_new ();
   ua_ui_session_properties_set_type (session->properties, U_USER_SESSION);
@@ -90,7 +90,18 @@ create_session (void)
   if (!session->session)
     GST_WARNING ("Failed to start new Ubuntu Application API session");
 
+  /* The UA requires a command line option set, so give it a fake argv array */
+  argv[0][0] = '\0';
+  session->app_options =
+      u_application_options_new_from_cmd_line (1, (char **) argv);
+
   session->app_description = u_application_description_new ();
+
+  /* Required by Mir */
+  session->app_id = u_application_id_new_from_stringn ("gstamc", 6);
+  u_application_description_set_application_id (session->app_description,
+      session->app_id);
+
   session->app_lifecycle_delegate = u_application_lifecycle_delegate_new ();
   /* No context data to pass to the lifecycle delegate for now */
   u_application_lifecycle_delegate_set_context
@@ -98,15 +109,6 @@ create_session (void)
   u_application_description_set_application_lifecycle_delegate
       (session->app_description, session->app_lifecycle_delegate);
 
-  /* Required by Mir */
-  session->app_id = u_application_id_new_from_stringn ("gstamc", 6);
-  u_application_description_set_application_id (session->app_description,
-      session->app_id);
-
-  /* The UA requires a command line option set, so give it a fake argv array */
-  argv[0][0] = '\n';
-  session->app_options =
-      u_application_options_new_from_cmd_line (1, (char **) argv);
   session->app_instance =
       u_application_instance_new_from_description_with_options
       (session->app_description, session->app_options);
@@ -125,7 +127,7 @@ create_window (struct ua_display *display, struct ua_session *session,
   g_return_val_if_fail (display != NULL, NULL);
   g_return_val_if_fail (session != NULL, NULL);
 
-  window = malloc (sizeof *window);
+  window = malloc (sizeof (struct ua_window));
   window->display = display;
   window->width = width;
   window->height = height;
