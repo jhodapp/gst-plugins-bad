@@ -169,6 +169,9 @@ destroy_session (struct ua_session *session)
     u_application_options_destroy (session->app_options);
  */
 
+  if (session->app_id)
+    u_application_id_destroy (session->app_id);
+
   if (session->app_description)
     u_application_description_destroy (session->app_description);
 
