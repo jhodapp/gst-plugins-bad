@@ -48,6 +48,7 @@ struct ua_session
 
   UApplicationDescription *app_description;
   UApplicationOptions *app_options;
+  UApplicationId *app_id;
   UApplicationInstance *app_instance;
   UApplicationLifecycleDelegate *app_lifecycle_delegate;
 };
