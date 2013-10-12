@@ -57,6 +57,9 @@ static gboolean ignore_unknown_color_formats = FALSE;
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
 
+/* FIXME: enable support for platform-api again once it's stable enough
+ * when using it with MIR (currently it creates all sorts of crashes */
+#if 0
 static struct ua_display *
 create_display (void)
 {
@@ -192,6 +195,7 @@ destroy_window (struct ua_window *window)
 
   free (window);
 }
+#endif
 
 static gchar *
 locale_to_utf8 (gchar * str, gssize len)
@@ -282,6 +286,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     /* Do slower copy-based software rendering */
     gst_amc_surface_texture_client_set_hardware_rendering (FALSE);
 
+#if 0
     /* Create a new Ubuntu Application API session */
     codec->session = create_session ();
 
@@ -305,6 +310,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
         create_window (codec->display, codec->session, codec->display->width,
         codec->display->height);
     surface_texture_client_create (codec->window->egl_native_window);
+#endif
   } else {
     /* Do zero-copy hardware rendering */
     gst_amc_surface_texture_client_set_hardware_rendering (TRUE);
@@ -406,12 +412,14 @@ gst_amc_codec_stop (GstAmcCodec * codec)
     goto done;
   }
 
+#if 0
   if (codec->window)
     destroy_window (codec->window);
   if (codec->display)
     destroy_display (codec->display);
   if (codec->session)
     destroy_session (codec->session);
+#endif
 
 done:
 
