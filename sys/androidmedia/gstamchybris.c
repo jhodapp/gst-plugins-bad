@@ -1012,6 +1012,14 @@ scan_codecs (GstPlugin * plugin)
 
     GST_INFO ("Checking codec '%s'", name_str);
 
+    /* FIXME: enable software decoders once we have software rendering
+     * working in mir */
+    if (g_str_has_prefix (name_str, "OMX.google")) {
+      GST_INFO ("Skipping Google Software codec '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
     /* Compatibility codec names */
     if (strcmp (name_str, "AACEncoder") == 0 ||
         strcmp (name_str, "OMX.google.raw.decoder") == 0) {
