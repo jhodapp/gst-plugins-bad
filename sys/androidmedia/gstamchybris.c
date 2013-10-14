@@ -277,8 +277,16 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
 
+  /* FIXME: find a better way to sync the texture_id from mirsink */
+  if (!surface_texture_client_is_ready_for_rendering ()) {
+    GST_WARNING
+        ("Surface texture client is not yet ready, waiting a bit for the texture id");\
+    g_usleep(G_USEC_PER_SEC / 5);
+  }
+
   GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
       surface_texture_client_is_ready_for_rendering ());
+
   if (!surface_texture_client_is_ready_for_rendering ()) {
     GST_WARNING
         ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
