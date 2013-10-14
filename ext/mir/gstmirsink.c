@@ -67,19 +67,15 @@ enum
 GST_DEBUG_CATEGORY (gstmir_debug);
 #define GST_CAT_DEFAULT gstmir_debug
 
-#if G_BYTE_ORDER == G_BIG_ENDIAN
-#define CAPS "{NV12, xRGB, ARGB}"
-#else
-#define CAPS "{NV21, BGRx, BGRA}"
-#endif
-
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("video/x-raw, "
-        "format=(string)NV12, "
+        "format=(string) {RGBA, BGRA, ARGB, ABGR, RGBx, BGRx, xRGB, xBGR, "
+        "AYUV, Y444, I420, YV12, NV12, NV21, Y42B, Y41B, RGB, BGR, RGB16}, "
         "width=(int)[ 1, MAX ], " "height=(int)[ 1, MAX ], "
-        "framerate=(fraction)[ 0, MAX ] "));
+        "framerate=(fraction)[ 0, MAX ] ")
+    );
 
 static guint frame_ready_signal = 0;
 
