@@ -278,11 +278,13 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   g_return_val_if_fail (format != NULL, FALSE);
 
   if (surface_texture_client_hardware_rendering ()) {
+    guint8 i = 0;
     /* Make sure that we have a valid texture_id before we proceed with configuring */
-    while (!surface_texture_client_is_ready_for_rendering ()) {
+    while (!surface_texture_client_is_ready_for_rendering () && i < 25) {
       GST_WARNING
           ("Surface texture client is not yet ready, waiting a bit for the texture id");
       g_usleep (G_USEC_PER_SEC / 5);
+      ++i;
     }
   } else {
     GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
