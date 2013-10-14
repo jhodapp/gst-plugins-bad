@@ -42,6 +42,8 @@
 
 #include <gst/mir/mirallocator.h>
 
+#include <hybris/media/surface_texture_client_hybris.h>
+
 #include <gst/egl/egl.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -151,6 +153,14 @@ gst_mir_sink_init (GstMirSink * sink)
   sink->pool = NULL;
 
   g_mutex_init (&sink->mir_lock);
+
+  /* Because mirsink is being loaded, we are definitely doing
+   * hardware rendering. Unfortunately this can't be communicated
+   * to the decoder over the GStreamer pipeline, since this is long
+   * before the pads have been negotiated. So use hybris to do this
+   * communication.
+   */
+  surface_texture_client_set_hardware_rendering (TRUE);
 }
 
 static void

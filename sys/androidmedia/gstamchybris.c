@@ -277,51 +277,47 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
 
-  /* FIXME: find a better way to sync the texture_id from mirsink */
-  if (!surface_texture_client_is_ready_for_rendering ()) {
-    GST_WARNING
-        ("Surface texture client is not yet ready, waiting a bit for the texture id");\
-    g_usleep(G_USEC_PER_SEC / 5);
-  }
+  if (surface_texture_client_hardware_rendering ()) {
+    /* Make sure that we have a valid texture_id before we proceed with configuring */
+    while (!surface_texture_client_is_ready_for_rendering ()) {
+      GST_WARNING
+          ("Surface texture client is not yet ready, waiting a bit for the texture id");
+      g_usleep (G_USEC_PER_SEC / 5);
+    }
+  } else {
+    GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
+        surface_texture_client_is_ready_for_rendering ());
 
-  GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
-      surface_texture_client_is_ready_for_rendering ());
-
-  if (!surface_texture_client_is_ready_for_rendering ()) {
-    GST_WARNING
-        ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
-
-    /* Do slower copy-based software rendering */
-    gst_amc_surface_texture_client_set_hardware_rendering (FALSE);
+    if (!surface_texture_client_is_ready_for_rendering ()) {
+      GST_WARNING
+          ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
 
 #if 0
-    /* Create a new Ubuntu Application API session */
-    codec->session = create_session ();
+      /* Create a new Ubuntu Application API session */
+      codec->session = create_session ();
 
-    if (codec->session == NULL) {
-      GST_ERROR
-          ("Could not initialize Mir output, could not start a Mir app session");
-      return FALSE;
-    }
+      if (codec->session == NULL) {
+        GST_ERROR
+            ("Could not initialize Mir output, could not start a Mir app session");
+        return FALSE;
+      }
 
-    codec->display = create_display ();
+      codec->display = create_display ();
 
-    if (codec->display == NULL) {
-      GST_ERROR
-          ("Could not initialize Mir output could not create a Mir display");
-      return FALSE;
-    }
+      if (codec->display == NULL) {
+        GST_ERROR
+            ("Could not initialize Mir output could not create a Mir display");
+        return FALSE;
+      }
 
-    /* Create an EGLNativeWindowType instance so that a pure playbin
-     * scenario will render video */
-    codec->window =
-        create_window (codec->display, codec->session, codec->display->width,
-        codec->display->height);
-    surface_texture_client_create (codec->window->egl_native_window);
+      /* Create an EGLNativeWindowType instance so that a pure playbin
+       * scenario will render video */
+      codec->window =
+          create_window (codec->display, codec->session, codec->display->width,
+          codec->display->height);
+      surface_texture_client_create (codec->window->egl_native_window);
 #endif
-  } else {
-    /* Do zero-copy hardware rendering */
-    gst_amc_surface_texture_client_set_hardware_rendering (TRUE);
+    }
   }
 
   err = media_codec_configure (codec->codec_delegate, format->format, stc, 0);
@@ -419,7 +415,6 @@ gst_amc_codec_stop (GstAmcCodec * codec)
     ret = FALSE;
     goto done;
   }
-
 #if 0
   if (codec->window)
     destroy_window (codec->window);
