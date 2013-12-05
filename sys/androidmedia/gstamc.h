@@ -122,6 +122,7 @@ struct _GstAmcCodec {
 #endif
 #ifdef HAVE_ANDROID_MEDIA_HYBRIS
   MediaCodecDelegate *codec_delegate;
+  SurfaceTextureClientHybris surface_texture_client;
   struct ua_session *session;
   struct ua_display *display;
   struct ua_window *window;
@@ -143,6 +144,8 @@ void gst_amc_codec_free (GstAmcCodec * codec);
 
 #ifdef HAVE_ANDROID_MEDIA_HYBRIS
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, SurfaceTextureClientHybris stc, gint flags);
+gboolean gst_amc_codec_set_surface_texture_client (GstAmcCodec * codec, SurfaceTextureClientHybris stc);
+SurfaceTextureClientHybris gst_amc_codec_get_surface_texture_client (GstAmcCodec * codec);
 #else
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, gint flags);
 #endif
@@ -185,7 +188,9 @@ void gst_amc_format_set_string (GstAmcFormat *format, const gchar *key, const gc
 gboolean gst_amc_format_get_buffer (GstAmcFormat *format, const gchar *key, guint8 **data, gsize *size);
 void gst_amc_format_set_buffer (GstAmcFormat *format, const gchar *key, guint8 *data, gsize size);
 
-void gst_amc_surface_texture_client_set_hardware_rendering (gboolean hardware_rendering);
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+void gst_amc_surface_texture_client_set_hardware_rendering (SurfaceTextureClientHybris stc, gboolean hardware_rendering);
+#endif
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
 gint gst_amc_video_format_to_color_format (GstVideoFormat video_format);

@@ -231,6 +231,7 @@ gst_amc_codec_new (const gchar * name)
     goto error;
   GST_DEBUG ("codec name '%s'", name_str);
 
+  codec->surface_texture_client = NULL;
   codec->codec_delegate = media_codec_create_by_codec_name (name_str);
   if (codec->codec_delegate == NULL) {
     GST_ERROR ("Failed to create codec '%s'", name_str);
@@ -277,20 +278,29 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
 
-  if (surface_texture_client_hardware_rendering ()) {
+  if (surface_texture_client_hardware_rendering (stc)) {
     guint8 i = 0;
+    const guint8 MAX_TRIES = 25;
     /* Make sure that we have a valid texture_id before we proceed with configuring */
-    while (!surface_texture_client_is_ready_for_rendering () && i < 25) {
+    while (!surface_texture_client_is_ready_for_rendering (stc)
+        && i < MAX_TRIES) {
       GST_WARNING
           ("Surface texture client is not yet ready, waiting a bit for the texture id");
       g_usleep (G_USEC_PER_SEC / 5);
       ++i;
     }
+
+    if (i >= MAX_TRIES) {
+      GST_ERROR
+          ("Failed to get a valid texture id, cannot configure the codec.");
+      ret = FALSE;
+      goto done;
+    }
   } else {
     GST_WARNING ("surface_texture_client_is_ready_for_rendering: %d",
-        surface_texture_client_is_ready_for_rendering ());
+        surface_texture_client_is_ready_for_rendering (stc));
 
-    if (!surface_texture_client_is_ready_for_rendering ()) {
+    if (!surface_texture_client_is_ready_for_rendering (stc)) {
       GST_WARNING
           ("SurfaceTextureClientHybris is not ready for rendering, creating EGLNativeWindowType");
 
@@ -331,6 +341,30 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
 
 done:
   return ret;
+}
+
+gboolean
+gst_amc_codec_set_surface_texture_client (GstAmcCodec * codec,
+    SurfaceTextureClientHybris stc)
+{
+  g_return_val_if_fail (codec != NULL, FALSE);
+  g_return_val_if_fail (stc != NULL, FALSE);
+
+  codec->surface_texture_client = stc;
+
+  GST_DEBUG_OBJECT (codec, "stc: %p", stc);
+  GST_DEBUG_OBJECT (codec, "codec->surface_texture_client: %p",
+      codec->surface_texture_client);
+
+  return TRUE;
+}
+
+SurfaceTextureClientHybris
+gst_amc_codec_get_surface_texture_client (GstAmcCodec * codec)
+{
+  g_return_val_if_fail (codec != NULL, NULL);
+
+  return codec->surface_texture_client;
 }
 
 gboolean
@@ -890,11 +924,10 @@ done:
   key_str = NULL;
 }
 
-void
-gst_amc_surface_texture_client_set_hardware_rendering (gboolean
-    hardware_rendering)
+void gst_amc_surface_texture_client_set_hardware_rendering
+    (SurfaceTextureClientHybris stc, gboolean hardware_rendering)
 {
-  surface_texture_client_set_hardware_rendering (hardware_rendering);
+  surface_texture_client_set_hardware_rendering (stc, hardware_rendering);
 }
 
 static gboolean
