@@ -1197,7 +1197,6 @@ gst_amc_video_dec_configure_self (GstVideoDecoder * decoder,
   surface_texture_client =
       gst_amc_codec_get_surface_texture_client (self->codec);
   GST_INFO_OBJECT (self, "surface_texture_client: %p", surface_texture_client);
-  g_return_val_if_fail (surface_texture_client != NULL, FALSE);
 
   /* Configure the hardware decoder */
   if (!gst_amc_codec_configure (self->codec, format, surface_texture_client, 0)) {
