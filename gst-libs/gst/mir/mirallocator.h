@@ -19,8 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __GST_EGL_H__
-#define __GST_EGL_H__
+#ifndef __GST_MIR_ALLOCATOR_H__
+#define __GST_MIR_ALLOCATOR_H__
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -66,4 +66,4 @@ GstMemory *gst_mir_image_allocator_wrap (GstAllocator * allocator, MediaCodecDel
     gsize buffer_id, GstMemoryFlags flags, gsize size, gboolean do_hardware_render,
     gpointer user_data, GDestroyNotify user_data_destroy);
 
-#endif /* __GST_EGL_H__ */
+#endif /* __GST_MIR_ALLOCATOR_H__ */

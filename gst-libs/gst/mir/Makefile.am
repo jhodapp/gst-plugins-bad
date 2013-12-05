@@ -1,11 +1,11 @@
 lib_LTLIBRARIES = libgstmiralloc-@GST_API_VERSION@.la
 
-libgstmiralloc_@GST_API_VERSION@_la_SOURCES = mirallocator.c
+libgstmiralloc_@GST_API_VERSION@_la_SOURCES = mirallocator.c gstmircontext.c
 
 libgstmiralloc_@GST_API_VERSION@includedir = \
 	$(includedir)/gstreamer-@GST_API_VERSION@/gst/mir
 
-libgstmiralloc_@GST_API_VERSION@include_HEADERS = mirallocator.h
+libgstmiralloc_@GST_API_VERSION@include_HEADERS = mirallocator.h gstmircontext.h
 
 libgstmiralloc_@GST_API_VERSION@_la_CFLAGS = \
 	$(GST_PLUGINS_BAD_CFLAGS) \

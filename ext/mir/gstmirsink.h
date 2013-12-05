@@ -45,6 +45,7 @@
 #include <ubuntu/application/ui/session.h>
 
 #include <hybris/media/surface_texture_client_hybris.h>
+//#include <gst/mir/gstmircontext.h>
 
 #define GST_TYPE_MIR_SINK \
         (gst_mir_sink_get_type())
@@ -97,6 +98,7 @@ struct _GstMirSink
 {
   GstVideoSink parent;
 
+  GstContext * context;
   SurfaceTextureClientHybris surface_texture_client;
 
   struct session *session;
@@ -116,6 +118,9 @@ struct _GstMirSink
 struct _GstMirSinkClass
 {
   GstVideoSinkClass parent;
+
+  void (*frame_ready_changed) (GstMirSink *sink, gpointer renderer);
+  void (*surface_texture_client_changed) (GstMirSink *sink, gpointer surface_texture_client, gpointer renderer);
 };
 
 GType gst_mir_sink_get_type (void) G_GNUC_CONST;

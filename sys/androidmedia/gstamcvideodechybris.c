@@ -91,6 +91,8 @@ static gboolean gst_amc_video_dec_flush (GstVideoDecoder * decoder);
 static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
+static void gst_amc_video_dec_set_context (GstElement * element,
+    GstContext * context);
 static gboolean gst_amc_video_dec_decide_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
 
@@ -479,6 +481,8 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_change_state);
+  element_class->set_context =
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_context);
 
   videodec_class->start = GST_DEBUG_FUNCPTR (gst_amc_video_dec_start);
   videodec_class->stop = GST_DEBUG_FUNCPTR (gst_amc_video_dec_stop);
@@ -1176,12 +1180,27 @@ gst_amc_video_dec_configure_self (GstVideoDecoder * decoder,
     GstAmcFormat * format)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+  SurfaceTextureClientHybris surface_texture_client = NULL;
+
+  GST_DEBUG_OBJECT (self, "%s", __PRETTY_FUNCTION__);
 
   g_return_val_if_fail (decoder != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
 
+  /* Try to get a SurfaceTextureClientHybris instance from mirsink */
+  if (!gst_mir_ensure_surface_texture_client (self)) {
+    GST_ERROR_OBJECT (decoder,
+        "Failed to ensure a SurfaceTextureClientHybris instance");
+    return FALSE;
+  }
+
+  surface_texture_client =
+      gst_amc_codec_get_surface_texture_client (self->codec);
+  GST_INFO_OBJECT (self, "surface_texture_client: %p", surface_texture_client);
+  g_return_val_if_fail (surface_texture_client != NULL, FALSE);
+
   /* Configure the hardware decoder */
-  if (!gst_amc_codec_configure (self->codec, format, NULL, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, surface_texture_client, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1980,6 +1999,25 @@ gst_amc_video_dec_drain (GstAmcVideoDec * self, gboolean at_eos)
   }
 
   return ret;
+}
+
+static void
+gst_amc_video_dec_set_context (GstElement * element, GstContext * context)
+{
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (element);
+  SurfaceTextureClientHybris stc;
+
+  GST_DEBUG_OBJECT (element, "%s", __PRETTY_FUNCTION__);
+
+  stc = gst_context_get_surface_texture_client (context);
+  if (!stc)
+    GST_ERROR_OBJECT (self,
+        "Failed to get SurfaceTextureClient instance. Hardware video rendering will not function");
+
+  GST_DEBUG_OBJECT (self, "stc: %p", stc);
+  if (!gst_amc_codec_set_surface_texture_client (self->codec, stc))
+    GST_ERROR_OBJECT (self,
+        "Failed to set SurfaceTextureClientHybris instance for decoder. Hardware video rendering will not function");
 }
 
 static gboolean

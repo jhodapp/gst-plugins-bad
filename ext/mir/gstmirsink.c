@@ -41,6 +41,7 @@
 #include "mirpool.h"
 
 #include <gst/mir/mirallocator.h>
+#include <gst/mir/gstmircontext.h>
 
 #include <hybris/media/surface_texture_client_hybris.h>
 
@@ -67,7 +68,22 @@ enum
 GST_DEBUG_CATEGORY (gstmir_debug);
 #define GST_CAT_DEFAULT gstmir_debug
 
-static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
+#if 0
+static const char gst_mirsink_sink_caps_str[] =
+GST_VIDEO_CAPS_MAKE_WITH_FEATURES (GST_CAPS_FEATURE_MEMORY_MIR_IMAGE,
+    GST_VIDEO_FORMATS_ALL) ";"
+    GST_VIDEO_CAPS_MAKE_WITH_FEATURES
+    (GST_CAPS_FEATURE_META_GST_VIDEO_GL_TEXTURE_UPLOAD_META,
+    GST_VIDEO_FORMATS_ALL);
+
+     static GstStaticPadTemplate gst_mirsink_sink_caps_template =
+         GST_STATIC_PAD_TEMPLATE ("sink",
+    GST_PAD_SINK,
+    GST_PAD_ALWAYS,
+    GST_STATIC_CAPS (gst_mirsink_sink_caps_str));
+#else
+static GstStaticPadTemplate gst_mirsink_sink_caps_template =
+GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("video/x-raw, "
@@ -76,8 +92,10 @@ static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
         "width=(int)[ 1, MAX ], " "height=(int)[ 1, MAX ], "
         "framerate=(fraction)[ 0, MAX ] ")
     );
+#endif
 
 static guint frame_ready_signal = 0;
+static guint surface_texture_client_set_signal = 0;
 
 /* Fixme: Add more interfaces */
 #define gst_mir_sink_parent_class parent_class
@@ -88,6 +106,8 @@ static void gst_mir_sink_get_property (GObject * object,
 static void gst_mir_sink_set_property (GObject * object,
     guint prop_id, const GValue * value, GParamSpec * pspec);
 static void gst_mir_sink_finalize (GObject * object);
+static void gst_mir_sink_set_context (GstElement * element,
+    GstContext * context);
 static GstCaps *gst_mir_sink_get_caps (GstBaseSink * bsink, GstCaps * filter);
 static gboolean gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps);
 static gboolean gst_mir_sink_start (GstBaseSink * bsink);
@@ -96,6 +116,7 @@ static gboolean gst_mir_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer);
 static gboolean
 gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query);
 static gboolean gst_mir_sink_render (GstBaseSink * bsink, GstBuffer * buffer);
+static gboolean gst_mir_sink_query (GstBaseSink * bsink, GstQuery * query);
 
 static void
 gst_mir_sink_class_init (GstMirSinkClass * klass)
@@ -111,9 +132,10 @@ gst_mir_sink_class_init (GstMirSinkClass * klass)
   gobject_class->set_property = gst_mir_sink_set_property;
   gobject_class->get_property = gst_mir_sink_get_property;
   gobject_class->finalize = GST_DEBUG_FUNCPTR (gst_mir_sink_finalize);
+  gstelement_class->set_context = gst_mir_sink_set_context;
 
   gst_element_class_add_pad_template (gstelement_class,
-      gst_static_pad_template_get (&sink_template));
+      gst_static_pad_template_get (&gst_mirsink_sink_caps_template));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "Mir video sink", "Sink/Video",
@@ -127,14 +149,22 @@ gst_mir_sink_class_init (GstMirSinkClass * klass)
   gstbasesink_class->propose_allocation =
       GST_DEBUG_FUNCPTR (gst_mir_sink_propose_allocation);
   gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_mir_sink_render);
+  gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_mir_sink_query);
 
   /* This signal is for being notified when a frame is ready to be rendered. This
    * is useful for anything outside of the sink that needs to know when each frame
    * is ready. */
   frame_ready_signal =
       g_signal_new ("frame-ready", G_TYPE_FROM_CLASS (klass),
-      G_SIGNAL_RUN_FIRST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_POINTER);
+      G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (GstMirSinkClass, frame_ready_changed), NULL, NULL,
+      g_cclosure_marshal_VOID__POINTER, G_TYPE_NONE, 0);
+
+  surface_texture_client_set_signal =
+      g_signal_new ("surface-texture-client", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (GstMirSinkClass, surface_texture_client_changed), NULL,
+      NULL, g_cclosure_marshal_VOID__POINTER, G_TYPE_NONE, 1, G_TYPE_POINTER);
 
   g_object_class_install_property (gobject_class, PROP_MIR_TEXTURE_ID,
       g_param_spec_uint ("texture-id", "Texture ID",
@@ -150,13 +180,8 @@ gst_mir_sink_init (GstMirSink * sink)
 
   g_mutex_init (&sink->mir_lock);
 
-  /* Because mirsink is being loaded, we are definitely doing
-   * hardware rendering. Unfortunately this can't be communicated
-   * to the decoder over the GStreamer pipeline, since this is long
-   * before the pads have been negotiated. So use hybris to do this
-   * communication.
-   */
-  surface_texture_client_set_hardware_rendering (TRUE);
+  sink->context = NULL;
+
 }
 
 static void
@@ -180,8 +205,20 @@ gst_mir_sink_create_surface_texture (GObject * object)
 {
   GstMirSink *sink = GST_MIR_SINK (object);
 
-  surface_texture_client_create_by_id (sink->texture_id);
-  GST_DEBUG_OBJECT (sink, "Created new SurfaceTextureClientHybris instance");
+  /* Create a new SurfaceTextureClientHybris instance from a texture ID */
+  sink->surface_texture_client =
+      surface_texture_client_create_by_id (sink->texture_id);
+  GST_DEBUG_OBJECT (sink, "Created new SurfaceTextureClientHybris instance: %p",
+      sink->surface_texture_client);
+  /* Because mirsink is being loaded, we are definitely doing
+   * hardware rendering.
+   */
+  surface_texture_client_set_hardware_rendering (sink->surface_texture_client,
+      TRUE);
+
+  /* Signal the client API that a surface_texture_client instance has been set */
+  g_signal_emit (G_OBJECT (sink), surface_texture_client_set_signal, 0,
+      (gpointer) sink->surface_texture_client);
 }
 
 static void
@@ -249,12 +286,61 @@ gst_mir_sink_finalize (GObject * object)
   if (sink->session)
     destroy_session (sink->session);
 #endif
+
+  /* Make sure that the SurfaceTextureClientHybris instance gets cleaned
+   * up when the pipeline is being torn down.
+   */
   if (sink->surface_texture_client)
-    surface_texture_client_destroy (sink->surface_texture_client);
+    surface_texture_client_unref (sink->surface_texture_client);
 
   g_mutex_clear (&sink->mir_lock);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
+}
+
+static void
+gst_mir_sink_set_context (GstElement * element, GstContext * context)
+{
+  GST_DEBUG_OBJECT (element, "%s", __PRETTY_FUNCTION__);
+}
+
+static gboolean
+gst_mir_sink_query (GstBaseSink * bsink, GstQuery * query)
+{
+  GstMirSink *sink = GST_MIR_SINK (bsink);
+
+  GST_INFO_OBJECT (sink, "query type %s", GST_QUERY_TYPE_NAME (query));
+
+  switch (GST_QUERY_TYPE (query)) {
+    case GST_QUERY_CONTEXT:{
+      const gchar *context_type;
+      GstMirContext *gst_mir_context;
+
+      if (gst_query_parse_context_type (query, &context_type) &&
+          strcmp (context_type, GST_MIR_CONTEXT_TYPE) == 0 &&
+          sink->surface_texture_client) {
+        GST_DEBUG_OBJECT (sink, "GST_MIR_CONTEXT_TYPE");
+
+        gst_mir_context = gst_mir_context_new (GST_ELEMENT_CAST (sink),
+            sink->surface_texture_client);
+        sink->context = gst_mir_context_new_with_stc (gst_mir_context);
+        GST_INFO_OBJECT (sink, "Setting context on the sink");
+        gst_query_set_context (query, sink->context);
+        gst_context_unref (sink->context);
+
+        return TRUE;
+      } else {
+        goto base_class;
+      }
+      break;
+    }
+    default:
+      goto base_class;
+      break;
+  }
+
+base_class:
+  return GST_BASE_SINK_CLASS (parent_class)->query (bsink, query);
 }
 
 #if 0
@@ -336,8 +422,8 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
   GST_DEBUG ("Creating new UA window");
   window->window =
-      ua_ui_window_new_for_application_with_properties (sink->
-      session->app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->session->
+      app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
   window->width = window->display->width;
   window->height = window->display->height;
@@ -462,12 +548,19 @@ gst_mir_sink_start (GstBaseSink * bsink)
 
   GST_DEBUG_OBJECT (sink, "start");
 
+  /* If we start playback again after an EOS, make sure we have a new valid
+   * SurfaceTextureClientHybris instance to use and pass to the decoder.
+   */
+  if (!sink->surface_texture_client) {
+    GST_DEBUG_OBJECT (sink, "Creating new SurfaceTextureClientHybris instance");
+    gst_mir_sink_create_surface_texture (G_OBJECT (bsink));
+  }
+#if 0
   /* If we are using a texture_id, there's no need to use the Ubuntu
    * Platform API to create an EGLNativeWindowType */
   if (sink->texture_id)
     return TRUE;
 
-#if 0
   /* Create a new Ubuntu Application API session */
   if (sink->session == NULL)
     sink->session = create_session ();
@@ -512,6 +605,12 @@ gst_mir_sink_stop (GstBaseSink * bsink)
 
   GST_DEBUG_OBJECT (sink, "stop");
 
+  /* MediaCodec (hybris layer) will destroy the underlying
+   * SurfaceTextureClientHybris instance, * so set it to NULL here so that
+   * we don't point to an invalid instance.
+   */
+  sink->surface_texture_client = NULL;
+
   return TRUE;
 }
 
@@ -527,7 +626,6 @@ gst_mir_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   GstAllocator *allocator;
   GstAllocationParams params;
 
-  GST_DEBUG_OBJECT (sink, "%s", __PRETTY_FUNCTION__);
   GST_DEBUG_OBJECT (sink, "Proposing ALLOCATION params");
 
   gst_allocation_params_init (&params);
@@ -673,7 +771,7 @@ gst_mir_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 #endif
   }
 
-  g_signal_emit_by_name (G_OBJECT (bsink), "frame-ready");
+  g_signal_emit (G_OBJECT (bsink), frame_ready_signal, 0);
 
 #if 0
   src.w = sink->video_width;

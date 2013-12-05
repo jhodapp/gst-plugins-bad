@@ -25,6 +25,10 @@
 
 #include <gst/video/gstvideodecoder.h>
 
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+  #include <gst/mir/gstmircontext.h>
+#endif
+
 #include "gstamc.h"
 
 G_BEGIN_DECLS
