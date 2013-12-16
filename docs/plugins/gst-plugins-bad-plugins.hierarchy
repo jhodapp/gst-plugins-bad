@@ -21,6 +21,10 @@ GObject
         GstAssRender
         GstAudioDecoder
           ADPCMDec
+<<<<<<< HEAD
+=======
+          GstCeltDec
+>>>>>>> Revert "Remove unecessary changes."
           GstDtsDec
           GstFaad
           GstGSMDec
@@ -30,6 +34,10 @@ GObject
           GstSirenDec
         GstAudioEncoder
           ADPCMEnc
+<<<<<<< HEAD
+=======
+          GstCeltEnc
+>>>>>>> Revert "Remove unecessary changes."
           GstFaac
           GstGSMEnc
           GstOpusEnc
@@ -37,6 +45,10 @@ GObject
           GstSirenEnc
           GstVoAacEnc
           GstVoAmrWbEnc
+<<<<<<< HEAD
+=======
+        GstAudioMixer
+>>>>>>> Revert "Remove unecessary changes."
         GstAudioVisualizer-BadGstAudioVisualizers
           GstSpaceScope
           GstSpectraScope
@@ -76,6 +88,10 @@ GObject
             GstWaylandSink
         GstBaseSrc
           GstAvdtpSrc
+<<<<<<< HEAD
+=======
+          GstDTMFSrc
+>>>>>>> Revert "Remove unecessary changes."
           GstDataURISrc
           GstFliteTestSrc
           GstInterAudioSrc
@@ -100,6 +116,10 @@ GObject
             frei0r-src-onecol0r
             frei0r-src-partik0l
             frei0r-src-plasma
+<<<<<<< HEAD
+=======
+          GstRTPDTMFSrc
+>>>>>>> Revert "Remove unecessary changes."
         GstBaseTransform
           GstAudioFilter
             GstAccurip
@@ -281,6 +301,10 @@ GObject
         GstPyramidSegment
         GstRTPBaseDepayload
           GstRTPOpusDepay
+<<<<<<< HEAD
+=======
+          GstRtpDTMFDepay
+>>>>>>> Revert "Remove unecessary changes."
         GstRTPBasePayload
           GstRtpAsfPay
           GstRtpOPUSPay
