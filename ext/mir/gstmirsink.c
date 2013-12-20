@@ -551,7 +551,7 @@ gst_mir_sink_start (GstBaseSink * bsink)
   /* If we start playback again after an EOS, make sure we have a new valid
    * SurfaceTextureClientHybris instance to use and pass to the decoder.
    */
-  if (!sink->surface_texture_client) {
+  if (!sink->surface_texture_client && sink->texture_id > 0) {
     GST_DEBUG_OBJECT (sink, "Creating new SurfaceTextureClientHybris instance");
     gst_mir_sink_create_surface_texture (G_OBJECT (bsink));
   }

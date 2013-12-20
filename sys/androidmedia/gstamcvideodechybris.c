@@ -1181,11 +1181,25 @@ gst_amc_video_dec_configure_self (GstVideoDecoder * decoder,
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
   SurfaceTextureClientHybris surface_texture_client = NULL;
+  guint8 i = 0;
+  const guint8 MAX_TRIES = 3;
 
   GST_DEBUG_OBJECT (self, "%s", __PRETTY_FUNCTION__);
 
   g_return_val_if_fail (decoder != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
+
+  /* This is a hack that should be able to go away when media-hub is used
+   * to instantiate the playbin pipeline instead of QtMultimedia. This is
+   * only required for the faster devices so that an eglContext exists and is
+   * valid for rendering, and a valid texture id can be passed to the hybris
+   * layer.
+   */
+  while (i < MAX_TRIES) {
+    GST_WARNING_OBJECT (self, "Waiting a bit for the texture id");
+    g_usleep (G_USEC_PER_SEC / 5);
+    ++i;
+  }
 
   /* Try to get a SurfaceTextureClientHybris instance from mirsink */
   if (!gst_mir_ensure_surface_texture_client (self)) {
