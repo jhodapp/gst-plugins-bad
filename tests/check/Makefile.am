@@ -169,6 +169,12 @@ else
 check_shm=
 endif
 
+if USE_ANDROID_MEDIA_HYBRIS
+check_gstamc=elements/gstamcvideodec
+else
+check_gstamc=
+endif
+
 VALGRIND_TO_FIX = \
 	elements/mpeg2enc \
 	elements/mplex    \
