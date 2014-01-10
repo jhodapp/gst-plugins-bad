@@ -285,6 +285,14 @@ GST_START_TEST (test_hardware_decode_verify_height_width)
 
   g_main_loop_run (loop);
 
+  /* Discussion from #gstreamer of how to get the height/width from
+   * the pipeline video stream:
+   * "you can either get it from the pad or - if you use appsink -
+   * you can get it from appsink (the caps will be in the GstSample structure along with the buffer)
+   * <jhodapp> __tim, so from the pad, I could call gst_pad_get_current_caps(), yes?
+   * <__tim> yes, once the pipeline is prerolled (async-done message)
+   */
+
   teardown_pipeline (video_sink, NULL);
   GST_INFO ("num_tags: %d", num_tags);
   fail_if (num_tags < 25);
