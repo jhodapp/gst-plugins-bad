@@ -517,7 +517,7 @@ gstamcvideodec_suite (void)
   suite_add_tcase (s, tc_chain);
   //tcase_add_checked_fixture (tc_chain, setup_pipeline, teardown_pipeline);
   tcase_set_timeout (tc_chain, 60);
-  tcase_add_test (tc_chain, test_hardware_decode_verify_height_width);
+  //tcase_add_test (tc_chain, test_hardware_decode_verify_height_width);
   tcase_add_test (tc_chain, test_hardware_decode);
   //tcase_add_test (tc_chain, test_hardware_decode_and_render);
   tcase_add_test (tc_chain, test_h264_decode_avi_container);
