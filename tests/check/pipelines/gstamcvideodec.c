@@ -334,7 +334,7 @@ GST_START_TEST (test_h264_decode_avi_container)
   g_main_loop_run (loop);
   teardown_pipeline (NULL, NULL);
   GST_INFO ("num_tags: %d", num_tags);
-  fail_if (num_tags < 98);
+  fail_if (num_tags < 25);
 }
 
 GST_END_TEST
@@ -353,7 +353,7 @@ GST_START_TEST (test_h264_decode_flv_container)
   g_main_loop_run (loop);
   teardown_pipeline (NULL, NULL);
   GST_INFO ("num_tags: %d", num_tags);
-  fail_if (num_tags < 98);
+  fail_if (num_tags < 25);
 }
 
 GST_END_TEST
@@ -372,7 +372,7 @@ GST_START_TEST (test_h264_decode_mov_container)
   g_main_loop_run (loop);
   teardown_pipeline (NULL, NULL);
   GST_INFO ("num_tags: %d", num_tags);
-  fail_if (num_tags < 98);
+  fail_if (num_tags < 25);
 }
 
 GST_END_TEST
@@ -391,7 +391,7 @@ GST_START_TEST (test_h264_decode_mp4_container)
   g_main_loop_run (loop);
   teardown_pipeline (NULL, NULL);
   GST_INFO ("num_tags: %d", num_tags);
-  fail_if (num_tags < 98);
+  fail_if (num_tags < 25);
 }
 
 GST_END_TEST
@@ -410,7 +410,7 @@ GST_START_TEST (test_mpeg4_decode_avi_container)
   g_main_loop_run (loop);
   teardown_pipeline (video_sink, NULL);
   GST_INFO ("num_tags: %d", num_tags);
-  fail_if (num_tags < 59);
+  fail_if (num_tags < 25);
 }
 
 GST_END_TEST
