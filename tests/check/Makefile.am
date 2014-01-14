@@ -229,6 +229,7 @@ check_PROGRAMS = \
 	elements/mxfmux \
 	elements/id3mux \
 	pipelines/mxf \
+	pipelines/gstamcvideodec \
 	$(check_mimic) \
 	libs/mpegvideoparser \
 	libs/h264parser \
