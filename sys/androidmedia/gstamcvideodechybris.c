@@ -853,8 +853,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
   GST_DEBUG_OBJECT (self, "hardware_rendering: %d", do_hardware_rendering);
 
   /* Same video format */
-  if (do_hardware_rendering
-      && buffer_info->size > 0 && gst_buffer_get_size (outbuf) > 0) {
+  if (do_hardware_rendering > 0) {
 
     if (gst_buffer_n_memory (outbuf) >= 1 && gst_is_mir_image_memory (mem)) {
       GST_DEBUG_OBJECT (self, "Doing hardware rendering");
