@@ -61,6 +61,11 @@ struct _GstAmcVideoDec
   GstVideoCodecState *input_state;
   gboolean input_state_changed;
 
+  /* Current timeout value to pass for doing
+   * queueing/dequeueing of input/output buffers
+   */
+  gint64 current_timeout;
+
   /* Output format of the codec */
   GstVideoFormat format;
   gint color_format;

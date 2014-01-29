@@ -541,10 +541,12 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
   for (i = 0; i < n_output_buffers; i++) {
     ret[i].data = media_codec_get_nth_output_buffer (codec->codec_delegate, i);
-    if (!ret[i].data) {
-      GST_ERROR ("Failed to get output buffer address %d", i);
-      goto error;
-    }
+    // It's no longer an error if the buffer address is zero, it just means
+    // MediaCodec with v4.4+ doesn't return the buffer address when doing hardware
+    // rendering
+    if (!ret[i].data)
+      GST_DEBUG ("Output buffer address is NULL for buffer #%d", i);
+
     ret[i].size =
         media_codec_get_nth_output_buffer_capacity (codec->codec_delegate, i);
     GST_DEBUG ("output buffer[%d] size: %d", i, ret[i].size);
@@ -552,13 +554,6 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
 done:
   return ret;
-
-error:
-  if (ret)
-    gst_amc_codec_free_buffers (ret, n_output_buffers);
-  ret = NULL;
-  *n_buffers = 0;
-  goto done;
 }
 
 GstAmcBuffer *
@@ -620,7 +615,7 @@ gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs)
       media_codec_dequeue_input_buffer (codec->codec_delegate, &index,
       timeoutUs);
   if (ret < 0) {
-    GST_WARNING ("Failed to dequeue input buffer (ret: %d)", ret);
+    GST_DEBUG ("Failed to dequeue input buffer (ret: %d)", ret);
     if (ret == -11)
       ret = INFO_TRY_AGAIN_LATER;
     goto done;
@@ -649,7 +644,7 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
       timeoutUs);
   GST_DEBUG ("dequeue output buffer ret: %d", ret);
   if (ret == INFO_TRY_AGAIN_LATER) {
-    GST_WARNING ("media_codec_dequeue_output_buffer timed out, trying again");
+    GST_DEBUG ("media_codec_dequeue_output_buffer timed out, trying again");
     info->flags = 0;
     info->offset = 0;
     info->size = 0;

@@ -504,6 +504,9 @@ gst_amc_video_dec_init (GstAmcVideoDec * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
+
+  /* Start queueing/dequeueing operations with a timeout of 0 */
+  self->current_timeout = 0;
 }
 
 static gboolean
@@ -851,7 +854,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
 
   /* Same video format */
   if (do_hardware_rendering
-      && buffer_info->size == 0 && gst_buffer_get_size (outbuf) > 0) {
+      && buffer_info->size > 0 && gst_buffer_get_size (outbuf) > 0) {
 
     if (gst_buffer_n_memory (outbuf) >= 1 && gst_is_mir_image_memory (mem)) {
       GST_DEBUG_OBJECT (self, "Doing hardware rendering");
@@ -1264,7 +1267,9 @@ retry:
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
   /* Wait at most 100ms here, some codecs don't fail dequeueing if
    * the codec is flushing, causing deadlocks during shutdown */
-  idx = gst_amc_codec_dequeue_output_buffer (self->codec, &buffer_info, 100000);
+  idx =
+      gst_amc_codec_dequeue_output_buffer (self->codec, &buffer_info,
+      self->current_timeout);
   GST_VIDEO_DECODER_STREAM_LOCK (self);
   /*} */
 
@@ -1275,7 +1280,13 @@ retry:
 
     switch (idx) {
       case INFO_OUTPUT_BUFFERS_CHANGED:{
-        GST_DEBUG_OBJECT (self, "Output buffers have changed");
+        GST_INFO_OBJECT (self, "Output buffers have changed");
+
+        /* Once the output buffers have changed, we don't need such an
+         * aggressive timeout value anymore for queueing/dequeueing
+         */
+        self->current_timeout = 10000;
+
         if (self->output_buffers)
           gst_amc_codec_free_buffers (self->output_buffers,
               self->n_output_buffers);
@@ -1290,7 +1301,7 @@ retry:
         GstAmcFormat *format;
         /* gchar *format_string; */
 
-        GST_DEBUG_OBJECT (self, "Output format has changed");
+        GST_INFO_OBJECT (self, "Output format has changed");
 
         format = gst_amc_codec_get_output_format (self->codec);
         if (!format)
@@ -1323,24 +1334,6 @@ retry:
       case INFO_TRY_AGAIN_LATER:
         GST_DEBUG_OBJECT (self,
             "Dequeueing output buffer timed out, trying again");
-        ++self->num_outbuf_dequeue_tries;
-        /* We don't always want to reset the output buffers, only in the cases when there is a stuck loop
-         * trying to get a new output buffer to decode to.
-         */
-        if (self->num_outbuf_dequeue_tries == 10) {
-          GST_WARNING_OBJECT (self,
-              "Heavy system I/O load detected, resetting output buffers");
-          if (self->output_buffers)
-            gst_amc_codec_free_buffers (self->output_buffers,
-                self->n_output_buffers);
-          self->output_buffers =
-              gst_amc_codec_get_output_buffers (self->codec,
-              &self->n_output_buffers);
-          if (!self->output_buffers)
-            goto get_output_buffers_error;
-
-          self->num_outbuf_dequeue_tries = 0;
-        }
         goto retry;
         break;
       case G_MININT:
@@ -1573,6 +1566,7 @@ gst_amc_video_dec_stop (GstVideoDecoder * decoder)
   if (self->input_state)
     gst_video_codec_state_unref (self->input_state);
   self->input_state = NULL;
+  self->current_timeout = 0;
   GST_DEBUG_OBJECT (self, "Stopped decoder");
   return TRUE;
 }
@@ -1805,7 +1799,8 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
     /* Wait at most 100ms here, some codecs don't fail dequeueing if
      * the codec is flushing, causing deadlocks during shutdown */
-    idx = gst_amc_codec_dequeue_input_buffer (self->codec, 100000);
+    idx =
+        gst_amc_codec_dequeue_input_buffer (self->codec, self->current_timeout);
     GST_VIDEO_DECODER_STREAM_LOCK (self);
 
     GST_DEBUG_OBJECT (self, "Tried to dequeue input buffer idx: %d", idx);
@@ -1973,7 +1968,7 @@ gst_amc_video_dec_drain (GstAmcVideoDec * self, gboolean at_eos)
    * class drop the EOS event. We will send it later when
    * the EOS buffer arrives on the output port.
    * Wait at most 0.5s here. */
-  idx = gst_amc_codec_dequeue_input_buffer (self->codec, 500000);
+  idx = gst_amc_codec_dequeue_input_buffer (self->codec, self->current_timeout);
   GST_DEBUG_OBJECT (self, "dequeued input buffer with idx: %d", idx);
   GST_VIDEO_DECODER_STREAM_LOCK (self);
 
