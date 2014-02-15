@@ -1085,6 +1085,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
         break;
       }
         /* FIXME: This should be in libgstvideo as MT12 or similar, see v4l2 */
+      case COLOR_EXYNOS_FormatNV12Tiled:
       case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
         GstVideoFrame vframe;
         gint width = self->width;
