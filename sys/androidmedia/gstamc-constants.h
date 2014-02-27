@@ -99,7 +99,9 @@ enum
   COLOR_QCOM_FormatYUV420SemiPlanar = 0x7fa30c00,
   COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka = 0x7fa30c03,
   /* From hardware/ti/omap4xxx/domx/omx_core/inc/OMX_TI_IVCommon.h */
-  COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced = 0x7f000001
+  COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced = 0x7f000001,
+  COLOR_EXYNOS_FormatNV12Tiled = 0x7fc00002,
+  COLOR_EXYNOS_FormatNV21Linear = 0x7f000011
 };
 
 enum
