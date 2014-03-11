@@ -74,8 +74,6 @@ enum
   PROP_LAST
 };
 
-static const float update_interval_factor[] = { 1, 0.5, 1.5, 3 };
-
 #define DEFAULT_FRAGMENTS_CACHE 3
 #define DEFAULT_FAILED_COUNT 3
 #define DEFAULT_BITRATE_LIMIT 0.8
@@ -1191,10 +1189,10 @@ gst_hls_demux_schedule (GstHLSDemux * demux)
    * 0.5 for the first attempt, 1.5 for the second, and 3.0 thereafter."
    */
   count = demux->client->update_failed_count;
-  if (count < 3)
-    update_factor = update_interval_factor[count];
+  if (count == 0)
+    update_factor = 1.0;
   else
-    update_factor = update_interval_factor[3];
+    update_factor = 0.5;
 
   /* schedule the next update using the target duration field of the
    * playlist */
@@ -1231,7 +1229,7 @@ gst_hls_demux_switch_playlist (GstHLSDemux * demux)
   diff = (GST_TIMEVAL_TO_TIME (now) - GST_TIMEVAL_TO_TIME (demux->next_update));
   buffer = gst_fragment_get_buffer (fragment);
   size = gst_buffer_get_size (buffer);
-  bitrate = (size * 8) / ((double) diff / GST_SECOND);
+  bitrate = (size * 8) / ((double) diff / G_USEC_PER_SEC);
 
   GST_DEBUG ("Downloaded %d bytes in %" GST_TIME_FORMAT ". Bitrate is : %d",
       (guint) size, GST_TIME_ARGS (diff), bitrate);

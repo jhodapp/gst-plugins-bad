@@ -612,6 +612,7 @@ retry:
     GstBuffer *outbuf;
     GstAmcBuffer *buf;
     GstMapInfo minfo;
+    gint nframes;
 
     /* This sometimes happens at EOS or if the input is not properly framed,
      * let's handle it gracefully by allocating a new buffer for the current
@@ -629,6 +630,9 @@ retry:
         goto done;
       }
     }
+
+    if (buffer_info.size % self->info.bpf != 0)
+      goto invalid_buffer_size;
 
     outbuf =
         gst_audio_decoder_allocate_output_buffer (GST_AUDIO_DECODER (self),
@@ -658,12 +662,18 @@ retry:
     }
     gst_buffer_unmap (outbuf, &minfo);
 
-    /* FIXME: We should get one decoded input frame here for
-     * every buffer. If this is not the case somewhere, we will
-     * error out at some point and will need to add workarounds
-     */
+    nframes = 1;
+    if (self->spf != -1) {
+      nframes = buffer_info.size / self->info.bpf;
+      if (nframes % self->spf != 0)
+        GST_WARNING_OBJECT (self, "Output buffer does not contain an integer "
+            "number of input frames (frames: %d, spf: %d)", nframes, self->spf);
+      nframes = (nframes + self->spf - 1) / self->spf;
+    }
+
     flow_ret =
-        gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf, 1);
+        gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf,
+        nframes);
   }
 
 done:
@@ -754,12 +764,15 @@ flow_error:
       gst_pad_push_event (GST_AUDIO_DECODER_SRC_PAD (self),
           gst_event_new_eos ());
       gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
-    } else if (flow_ret == GST_FLOW_NOT_LINKED || flow_ret < GST_FLOW_EOS) {
+    } else if (flow_ret < GST_FLOW_EOS) {
       GST_ELEMENT_ERROR (self, STREAM, FAILED,
           ("Internal data stream error."), ("stream stopped, reason %s",
               gst_flow_get_name (flow_ret)));
       gst_pad_push_event (GST_AUDIO_DECODER_SRC_PAD (self),
           gst_event_new_eos ());
+      gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
+    } else if (flow_ret == GST_FLOW_FLUSHING) {
+      GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
       gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
     }
     GST_AUDIO_DECODER_STREAM_UNLOCK (self);
@@ -776,11 +789,23 @@ invalid_buffer_index:
     GST_AUDIO_DECODER_STREAM_UNLOCK (self);
     return;
   }
+invalid_buffer_size:
+  {
+    GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
+        ("Invalid buffer size %u (bfp %d)", buffer_info.size, self->info.bpf));
+    gst_amc_codec_release_output_buffer (self->codec, idx);
+    gst_pad_push_event (GST_AUDIO_DECODER_SRC_PAD (self), gst_event_new_eos ());
+    gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
+    self->downstream_flow_ret = GST_FLOW_ERROR;
+    GST_AUDIO_DECODER_STREAM_UNLOCK (self);
+    return;
+  }
 
 failed_allocate:
   {
     GST_ELEMENT_ERROR (self, LIBRARY, SETTINGS, (NULL),
         ("Failed to allocate output buffer"));
+    gst_amc_codec_release_output_buffer (self->codec, idx);
     gst_pad_push_event (GST_AUDIO_DECODER_SRC_PAD (self), gst_event_new_eos ());
     gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_ERROR;
@@ -988,6 +1013,26 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   if (!self->input_buffers) {
     GST_ERROR_OBJECT (self, "Failed to get input buffers");
     return FALSE;
+  }
+
+  self->spf = -1;
+  /* TODO: Implement for other codecs too */
+  if (gst_structure_has_name (s, "audio/mpeg")) {
+    gint mpegversion = -1;
+
+    gst_structure_get_int (s, "mpegversion", &mpegversion);
+    if (mpegversion == 1) {
+      gint layer = -1, mpegaudioversion = -1;
+
+      gst_structure_get_int (s, "layer", &layer);
+      gst_structure_get_int (s, "mpegaudioversion", &mpegaudioversion);
+      if (layer == 1)
+        self->spf = 384;
+      else if (layer == 2)
+        self->spf = 1152;
+      else if (layer == 3 && mpegaudioversion != -1)
+        self->spf = (mpegaudioversion == 1 ? 1152 : 576);
+    }
   }
 
   self->started = TRUE;
