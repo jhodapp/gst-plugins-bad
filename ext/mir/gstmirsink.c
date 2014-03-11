@@ -62,7 +62,8 @@ enum
 enum
 {
   PROP_0,
-  PROP_MIR_TEXTURE_ID
+  PROP_MIR_TEXTURE_ID,
+  PROP_MIR_STCH
 };
 
 GST_DEBUG_CATEGORY (gstmir_debug);
@@ -170,6 +171,11 @@ gst_mir_sink_class_init (GstMirSinkClass * klass)
       g_param_spec_uint ("texture-id", "Texture ID",
           "Texture ID to render video to, created by the application", 0,
           UINT_MAX, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_MIR_STCH,
+      g_param_spec_pointer ("surface", "Surface",
+          "A void* Surface pointer that represents the texture to stream/render to",
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }
 
 static void
@@ -194,6 +200,8 @@ gst_mir_sink_get_property (GObject * object,
     case PROP_MIR_TEXTURE_ID:
       g_value_set_uint (value, sink->texture_id);
       break;
+    case PROP_MIR_STCH:
+      g_value_set_pointer (value, (gpointer) sink->surface_texture_client);
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -232,6 +240,12 @@ gst_mir_sink_set_property (GObject * object,
       sink->texture_id = g_value_get_uint (value);
       GST_WARNING_OBJECT (object, "texture_id: %d", sink->texture_id);
       gst_mir_sink_create_surface_texture (object);
+      break;
+    case PROP_MIR_STCH:
+      sink->surface_texture_client =
+          (SurfaceTextureClientHybris) g_value_get_pointer (value)
+          GST_WARNING_OBJECT (object, "surface_texture_client: %d",
+          sink->surface_texture_client);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -422,8 +436,8 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
   GST_DEBUG ("Creating new UA window");
   window->window =
-      ua_ui_window_new_for_application_with_properties (sink->session->
-      app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->
+      session->app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
   window->width = window->display->width;
   window->height = window->display->height;
