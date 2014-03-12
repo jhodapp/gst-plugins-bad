@@ -243,8 +243,8 @@ gst_mir_sink_set_property (GObject * object,
       break;
     case PROP_MIR_STCH:
       sink->surface_texture_client =
-          (SurfaceTextureClientHybris) g_value_get_pointer (value)
-          GST_WARNING_OBJECT (object, "surface_texture_client: %d",
+          (SurfaceTextureClientHybris) g_value_get_pointer (value);
+      GST_WARNING_OBJECT (object, "surface_texture_client: 0x%p",
           sink->surface_texture_client);
       break;
     default:
@@ -436,8 +436,8 @@ create_window (GstMirSink * sink, struct display *display, int width,
   ua_ui_window_properties_set_input_cb_and_ctx (window->properties, NULL, NULL);
   GST_DEBUG ("Creating new UA window");
   window->window =
-      ua_ui_window_new_for_application_with_properties (sink->
-      session->app_instance, window->properties);
+      ua_ui_window_new_for_application_with_properties (sink->session->
+      app_instance, window->properties);
   GST_DEBUG ("Setting window geometry");
   window->width = window->display->width;
   window->height = window->display->height;
