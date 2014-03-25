@@ -1494,7 +1494,7 @@ format_error:
   }
 flushing:
   {
-    GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+    GST_DEBUG_OBJECT (self, "Flushing -- pausing video_decoder_src_pad task");
     gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
@@ -1712,6 +1712,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   /* Start the srcpad loop again */
   self->flushing = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
+
   gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
       (GstTaskFunction) gst_amc_video_dec_loop, decoder, NULL);
 
