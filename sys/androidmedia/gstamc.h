@@ -172,7 +172,11 @@ gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
 #endif
 
 GstAmcFormat * gst_amc_format_new_audio (const gchar *mime, gint sample_rate, gint channels);
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+GstAmcFormat * gst_amc_format_new_video (const gchar *mime, gint width, gint height, gint buffsize);
+#else
 GstAmcFormat * gst_amc_format_new_video (const gchar *mime, gint width, gint height);
+#endif
 void gst_amc_format_free (GstAmcFormat * format);
 
 gchar * gst_amc_format_to_string (GstAmcFormat * format);
