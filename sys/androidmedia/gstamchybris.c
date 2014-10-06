@@ -790,7 +790,8 @@ error:
 }
 
 GstAmcFormat *
-gst_amc_format_new_video (const gchar * mime, gint width, gint height)
+gst_amc_format_new_video (const gchar * mime, gint width, gint height,
+    gint buffsize)
 {
   GstAmcFormat *format = NULL;
   gchar *mime_str = NULL;
@@ -807,7 +808,7 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
   format = g_slice_new0 (GstAmcFormat);
 
   format->format =
-      media_format_create_video_format (mime_str, width, height, 0, 0);
+      media_format_create_video_format (mime_str, width, height, 0, buffsize);
   if (format->format == NULL) {
     GST_ERROR ("Failed to create format '%s'", mime);
     goto error;

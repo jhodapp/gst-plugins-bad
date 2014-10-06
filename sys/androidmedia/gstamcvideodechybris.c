@@ -375,7 +375,7 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 }
 
 static const gchar *
-caps_to_mime (GstCaps * caps)
+get_caps_data (GstCaps * caps, int * buffsize)
 {
   GstStructure *s;
   const gchar *name;
@@ -385,6 +385,9 @@ caps_to_mime (GstCaps * caps)
     return NULL;
 
   name = gst_structure_get_name (s);
+
+  if (!gst_structure_get_int (s, "max-input-size", buffsize))
+    *buffsize = 0;
 
   if (strcmp (name, "video/mpeg") == 0) {
     gint mpegversion;
@@ -1595,6 +1598,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   /* gchar *format_string; */
   guint8 *codec_data = NULL;
   gsize codec_data_size = 0;
+  int buffsize;
 
   self = GST_AMC_VIDEO_DEC (decoder);
 
@@ -1670,16 +1674,19 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_DEBUG_OBJECT (self, "codec_data_size: %d", codec_data_size);
 
-  mime = caps_to_mime (state->caps);
+  mime = get_caps_data (state->caps, &buffsize);
   if (!mime) {
     GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
     return FALSE;
   }
 
-  GST_DEBUG_OBJECT (self, "mime: '%s', width: %d, height %d", mime,
-      state->info.width, state->info.height);
+  GST_DEBUG_OBJECT (self, "caps are %" GST_PTR_FORMAT, state->caps);
+
+  GST_DEBUG_OBJECT (self, "mime: '%s', width: %d, height %d, buffsize %d", mime,
+      state->info.width, state->info.height, buffsize);
   format =
-      gst_amc_format_new_video (mime, state->info.width, state->info.height);
+      gst_amc_format_new_video (mime, state->info.width, state->info.height,
+          buffsize);
   if (!format) {
     GST_ERROR_OBJECT (self, "Failed to create video format");
     return FALSE;
