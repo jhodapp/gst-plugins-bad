@@ -63,7 +63,9 @@ enum
 {
   PROP_0,
   PROP_MIR_TEXTURE_ID,
-  PROP_MIR_STCH
+  PROP_MIR_STCH,
+  PROP_MIR_VIDEO_HEIGHT,
+  PROP_MIR_VIDEO_WIDTH
 };
 
 GST_DEBUG_CATEGORY (gstmir_debug);
@@ -176,6 +178,16 @@ gst_mir_sink_class_init (GstMirSinkClass * klass)
       g_param_spec_pointer ("surface", "Surface",
           "A void* Surface pointer that represents the texture to stream/render to",
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_MIR_VIDEO_HEIGHT,
+      g_param_spec_uint ("height", "Video Height",
+          "Height of each video frame", 0,
+          UINT_MAX, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_MIR_VIDEO_WIDTH,
+      g_param_spec_uint ("width", "Video Width",
+          "Width of each video frame", 0,
+          UINT_MAX, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 }
 
 static void
@@ -202,6 +214,13 @@ gst_mir_sink_get_property (GObject * object,
       break;
     case PROP_MIR_STCH:
       g_value_set_pointer (value, (gpointer) sink->surface_texture_client);
+      break;
+    case PROP_MIR_VIDEO_HEIGHT:
+      g_value_set_uint (value, sink->video_height);
+      break;
+    case PROP_MIR_VIDEO_WIDTH:
+      g_value_set_uint (value, sink->video_width);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -500,6 +519,9 @@ gst_mir_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
   sink->video_width = info.width;
   sink->video_height = info.height;
   size = info.size;
+
+  GST_LOG_OBJECT (sink, "sink->video_width: %u", sink->video_width);
+  GST_LOG_OBJECT (sink, "sink->video_height: %u", sink->video_height);
 
   GST_DEBUG_OBJECT (sink, "Creating new GstMirBufferPool");
   /* Create a new pool for the new configuration */
