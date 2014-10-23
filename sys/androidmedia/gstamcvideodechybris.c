@@ -221,61 +221,12 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
       ret = gst_caps_merge_structure (ret, tmp);
     } else if (strcmp (type->mime, "video/3gpp") == 0) {
-      gint j;
-      GstStructure *tmp, *tmp2;
-      gboolean have_profile_level = FALSE;
+      GstStructure *tmp;
 
       tmp = gst_structure_new ("video/x-h263",
-          "width", GST_TYPE_INT_RANGE, 16, 4096,
-          "height", GST_TYPE_INT_RANGE, 16, 4096,
-          "framerate", GST_TYPE_FRACTION_RANGE,
-          0, 1, G_MAXINT, 1,
-          "parsed", G_TYPE_BOOLEAN, TRUE,
-          "variant", G_TYPE_STRING, "itu", NULL);
-
-      if (type->n_profile_levels) {
-        for (j = type->n_profile_levels - 1; j >= 0; j--) {
-          gint profile, level;
-          gint k;
-          GValue va = { 0, };
-          GValue v = { 0, };
-
-          g_value_init (&va, GST_TYPE_LIST);
-          g_value_init (&v, G_TYPE_UINT);
-
-          profile =
-              gst_amc_h263_profile_to_gst_id (type->profile_levels[j].profile);
-
-          if (profile == -1) {
-            GST_ERROR ("Unable to map h263 profile 0x%08x",
-                type->profile_levels[j].profile);
-            continue;
-          }
-
-          for (k = 1; k <= type->profile_levels[j].level && k != 0; k <<= 1) {
-            level = gst_amc_h263_level_to_gst_id (k);
-            if (level == -1)
-              continue;
-
-            g_value_set_uint (&v, level);
-            gst_value_list_append_value (&va, &v);
-            g_value_reset (&v);
-          }
-          tmp2 = gst_structure_copy (tmp);
-          gst_structure_set (tmp2, "profile", G_TYPE_UINT, profile, NULL);
-          gst_structure_set_value (tmp2, "level", &va);
-          g_value_unset (&va);
-          g_value_unset (&v);
-          ret = gst_caps_merge_structure (ret, tmp2);
-          have_profile_level = TRUE;
-        }
-      }
-
-      if (!have_profile_level) {
-        ret = gst_caps_merge_structure (ret, tmp);
-      } else {
-        gst_structure_free (tmp);
-      }
+          "variant", G_TYPE_STRING, "itu",
+          NULL);
+      ret = gst_caps_merge_structure (ret, tmp);
     } else if (strcmp (type->mime, "video/avc") == 0) {
       gint j;
       GstStructure *tmp, *tmp2;
