@@ -1338,6 +1338,9 @@ retry:
         "Frame is too late, dropping (deadline %" GST_TIME_FORMAT ")",
         GST_TIME_ARGS (-deadline));
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+
+    if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
+      GST_ERROR_OBJECT (self, "Failed to release output buffer index %d", idx);
   } else if (!frame && buffer_info.size > 0) {
     GstBuffer *outbuf;
 
@@ -1388,6 +1391,9 @@ retry:
   } else if (frame != NULL) {
     GST_DEBUG_OBJECT (self, "Dropping frame");
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+
+    if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
+      GST_ERROR_OBJECT (self, "Failed to release output buffer index %d", idx);
   }
 
   if (is_eos || flow_ret == GST_FLOW_EOS) {
