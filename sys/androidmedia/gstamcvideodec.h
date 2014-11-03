@@ -96,6 +96,13 @@ struct _GstAmcVideoDec
   gboolean eos;
 
   GstFlowReturn downstream_flow_ret;
+
+#ifdef HAVE_ANDROID_MEDIA_HYBRIS
+  /* To wait for source caps to be set */
+  GMutex srccaps_lock;
+  GCond srccaps_cond;
+  gboolean srccaps_set;
+#endif
 };
 
 struct _GstAmcVideoDecClass

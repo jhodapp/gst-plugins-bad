@@ -52,6 +52,8 @@
 GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
 
+#define WAIT_FOR_SRC_CAPS_MS 100
+
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
 {
@@ -98,6 +100,9 @@ static gboolean gst_amc_video_dec_decide_allocation (GstVideoDecoder * bdec,
 
 static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self,
     gboolean at_eos);
+
+static gboolean gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
+    GstEvent * event);
 
 enum
 {
@@ -465,13 +470,75 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 static void
 gst_amc_video_dec_init (GstAmcVideoDec * self)
 {
-  gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
+  GstVideoDecoder *decoder = GST_VIDEO_DECODER (self);
+
+  gst_video_decoder_set_packetized (decoder, TRUE);
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
 
+  g_mutex_init (&self->srccaps_lock);
+  g_cond_init (&self->srccaps_cond);
+  self->srccaps_set = FALSE;
+
+  gst_pad_set_event_function (decoder->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event));
+
   /* Start queueing/dequeueing operations with a timeout of 0 */
   self->current_timeout = 0;
+}
+
+static gboolean
+gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
+    GstEvent * event)
+{
+  GstVideoDecoder *decoder;
+  GstVideoDecoderClass *decoder_class;
+  GstAmcVideoDec *self;
+  gboolean ret = FALSE;
+
+  decoder = GST_VIDEO_DECODER (parent);
+  self = GST_AMC_VIDEO_DEC (decoder);
+  decoder_class = GST_VIDEO_DECODER_GET_CLASS (decoder);
+
+  GST_DEBUG_OBJECT (self, "received event %d, %s", GST_EVENT_TYPE (event),
+      GST_EVENT_TYPE_NAME (event));
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_EOS:
+    {
+      /* For very short videos (<2s), it can happen that we receive EOS before
+       * having set the src pad caps, which makes the pad return and error later
+       * when we try to configure it as it is in EOS state. This leaves us
+       * without output buffers and we cannot play the video.
+       * This sequence can happen because we wait for an async event from the HW
+       * decoder to set the src caps. Waiting a few milliseconds seems to solve
+       * the issue, although it is not the perfect solution.
+       * TODO: Find out if there is a better way to handle this. Is it possible
+       * to set output buffers after other src caps?
+       */
+      gint64 end_time = g_get_monotonic_time ()
+          + WAIT_FOR_SRC_CAPS_MS * G_TIME_SPAN_MILLISECOND;
+
+      g_mutex_lock (&self->srccaps_lock);
+      while (!self->srccaps_set) {
+        if (!g_cond_wait_until (&self->srccaps_cond, &self->srccaps_lock,
+                end_time)) {
+          GST_DEBUG_OBJECT (self, "No src caps, not delaying EOS anymore");
+          break;
+        }
+      }
+      g_mutex_unlock (&self->srccaps_lock);
+      break;
+    }
+    default:
+      break;
+  }
+
+  if (decoder_class->sink_event)
+    ret = decoder_class->sink_event (decoder, event);
+
+  return ret;
 }
 
 static gboolean
@@ -521,6 +588,9 @@ gst_amc_video_dec_finalize (GObject * object)
 
   g_mutex_clear (&self->drain_lock);
   g_cond_clear (&self->drain_cond);
+
+  g_mutex_clear (&self->srccaps_lock);
+  g_cond_clear (&self->srccaps_cond);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
@@ -1293,6 +1363,11 @@ retry:
         if (!self->output_buffers)
           goto get_output_buffers_error;
 
+        g_mutex_lock (&self->srccaps_lock);
+        self->srccaps_set = TRUE;
+        g_cond_signal (&self->srccaps_cond);
+        g_mutex_unlock (&self->srccaps_lock);
+
         goto retry;
         break;
       }
@@ -1496,6 +1571,7 @@ gst_amc_video_dec_start (GstVideoDecoder * decoder)
   GstAmcVideoDec *self;
 
   self = GST_AMC_VIDEO_DEC (decoder);
+  GST_DEBUG_OBJECT (self, "Starting decoder");
   self->last_upstream_ts = 0;
   self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
