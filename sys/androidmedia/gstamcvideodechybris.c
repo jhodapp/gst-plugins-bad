@@ -1532,6 +1532,13 @@ flushing:
     GST_DEBUG_OBJECT (self, "Flushing -- pausing video_decoder_src_pad task");
     gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
+    g_mutex_lock (&self->drain_lock);
+    if (self->draining) {
+      GST_DEBUG_OBJECT (self, "EOS received while flushing");
+      self->draining = FALSE;
+      g_cond_broadcast (&self->drain_cond);
+    }
+    g_mutex_unlock (&self->drain_lock);
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
     return;
   }
