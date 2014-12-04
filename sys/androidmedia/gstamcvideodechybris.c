@@ -616,8 +616,11 @@ gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
+      GST_VIDEO_DECODER_STREAM_LOCK(self);
       self->flushing = TRUE;
       gst_amc_codec_flush (self->codec);
+      GST_VIDEO_DECODER_STREAM_UNLOCK(self);
+
       g_mutex_lock (&self->drain_lock);
       self->draining = FALSE;
       g_cond_broadcast (&self->drain_cond);
