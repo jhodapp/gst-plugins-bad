@@ -1817,6 +1817,10 @@ static GstFlowReturn
 gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame)
 {
+  /* 1 sec is enough for the first video input buffer from the hybris layer to
+   * appear.
+   */
+  static const gint64 wait_buff_us = 1000000;
   GstAmcVideoDec *self;
   gint idx;
   GstAmcBuffer *buf;
@@ -1862,7 +1866,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     /* Wait at most 100ms here, some codecs don't fail dequeueing if
      * the codec is flushing, causing deadlocks during shutdown */
     idx =
-        gst_amc_codec_dequeue_input_buffer (self->codec, self->current_timeout);
+        gst_amc_codec_dequeue_input_buffer (self->codec, wait_buff_us);
     GST_VIDEO_DECODER_STREAM_LOCK (self);
 
     GST_DEBUG_OBJECT (self, "Tried to dequeue input buffer idx: %d", idx);
@@ -1872,8 +1876,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       switch (idx) {
         case INFO_TRY_AGAIN_LATER:
           GST_DEBUG_OBJECT (self, "Dequeueing input buffer timed out");
-          continue;             /* next try */
-          break;
+          goto dequeue_error;
         case G_MININT:
           GST_ERROR_OBJECT (self, "Failed to dequeue input buffer");
           goto dequeue_error;
