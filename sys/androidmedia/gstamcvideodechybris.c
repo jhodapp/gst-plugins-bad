@@ -708,6 +708,12 @@ _find_nearest_frame (GstAmcVideoDec * self, GstClockTime reference_timestamp)
       BufferIdentification *id = gst_video_codec_frame_get_user_data (tmp);
       guint64 diff_time, diff_frames;
 
+      /* As in previous loop, ignore frames that were just added but which were
+       * not passed to the component yet.
+       */
+      if (!id)
+        continue;
+
       if (id->timestamp > best_timestamp)
         break;
 
