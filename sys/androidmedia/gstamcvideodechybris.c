@@ -103,6 +103,8 @@ static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self,
 
 static gboolean gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
     GstEvent * event);
+static gboolean gst_amc_video_dec_src_event (GstPad * pad, GstObject * parent,
+    GstEvent * event);
 
 enum
 {
@@ -483,6 +485,8 @@ gst_amc_video_dec_init (GstAmcVideoDec * self)
 
   gst_pad_set_event_function (decoder->sinkpad,
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event));
+  gst_pad_set_event_function (decoder->srcpad,
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_src_event));
 
   /* Start queueing/dequeueing operations with a timeout of 0 */
   self->current_timeout = 0;
@@ -501,7 +505,7 @@ gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
   self = GST_AMC_VIDEO_DEC (decoder);
   decoder_class = GST_VIDEO_DECODER_GET_CLASS (decoder);
 
-  GST_DEBUG_OBJECT (self, "received event %d, %s", GST_EVENT_TYPE (event),
+  GST_DEBUG_OBJECT (self, "received sink event %d, %s", GST_EVENT_TYPE (event),
       GST_EVENT_TYPE_NAME (event));
 
   switch (GST_EVENT_TYPE (event)) {
@@ -531,12 +535,44 @@ gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
       g_mutex_unlock (&self->srccaps_lock);
       break;
     }
+    case GST_EVENT_SEGMENT:
+      self->waiting_segment = FALSE;
     default:
       break;
   }
 
   if (decoder_class->sink_event)
     ret = decoder_class->sink_event (decoder, event);
+
+  return ret;
+}
+
+static gboolean
+gst_amc_video_dec_src_event (GstPad * pad, GstObject * parent,
+    GstEvent * event)
+{
+  GstVideoDecoder *decoder;
+  GstVideoDecoderClass *decoder_class;
+  GstAmcVideoDec *self;
+  gboolean ret = FALSE;
+
+  decoder = GST_VIDEO_DECODER (parent);
+  self = GST_AMC_VIDEO_DEC (decoder);
+  decoder_class = GST_VIDEO_DECODER_GET_CLASS (decoder);
+
+  GST_DEBUG_OBJECT (self, "received src event %d, %s", GST_EVENT_TYPE (event),
+      GST_EVENT_TYPE_NAME (event));
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_SEEK:
+      self->waiting_segment = TRUE;
+      break;
+    default:
+      break;
+  }
+
+  if (decoder_class->src_event)
+    ret = decoder_class->src_event (decoder, event);
 
   return ret;
 }
@@ -1300,22 +1336,24 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
   gboolean is_eos;
   GstAmcBufferInfo buffer_info;
   gint idx;
+  GstVideoDecoder *decoder = GST_VIDEO_DECODER (self);
 
   GST_VIDEO_DECODER_STREAM_LOCK (self);
 
 retry:
-  /*if (self->input_state_changed) {
-     idx = INFO_OUTPUT_FORMAT_CHANGED;
-     } else { */
   GST_DEBUG_OBJECT (self, "Waiting for available output buffer");
+  /* Unlock stream and pad to avoid deadlocks when there are no hybris
+   * buffers
+   */
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+  GST_PAD_STREAM_UNLOCK (GST_VIDEO_DECODER_SRC_PAD (decoder));
   /* Wait at most 100ms here, some codecs don't fail dequeueing if
    * the codec is flushing, causing deadlocks during shutdown */
   idx =
       gst_amc_codec_dequeue_output_buffer (self->codec, &buffer_info,
       self->current_timeout);
+  GST_PAD_STREAM_LOCK (GST_VIDEO_DECODER_SRC_PAD (decoder));
   GST_VIDEO_DECODER_STREAM_LOCK (self);
-  /*} */
 
   GST_DEBUG_OBJECT (self, "Tried to dequeue output buffer (idx: %d)", idx);
   if (idx < 0) {
@@ -1462,6 +1500,7 @@ retry:
     /* Stuff the raw decoded video data into the buffer */
     if (!gst_amc_video_dec_fill_buffer (self, idx, &buffer_info,
             frame->output_buffer)) {
+      GST_ERROR_OBJECT (self, "Cannot fill output buffer index %d", idx);
       gst_buffer_replace (&frame->output_buffer, NULL);
       gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
@@ -1473,11 +1512,13 @@ retry:
     /* Push the frame downstream through the pipeline */
     flow_ret = gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
   } else if (frame != NULL) {
-    GST_DEBUG_OBJECT (self, "Dropping frame");
+    GST_ERROR_OBJECT (self, "Dropping frame");
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
 
     if (!gst_amc_codec_release_output_buffer (self->codec, idx, FALSE))
       GST_ERROR_OBJECT (self, "Failed to release output buffer index %d", idx);
+  } else {
+    GST_ERROR_OBJECT (self, "Unexpected condition output buffer index %d", idx);
   }
 
   if (is_eos || flow_ret == GST_FLOW_EOS) {
@@ -1499,6 +1540,8 @@ retry:
 
   self->downstream_flow_ret = flow_ret;
 
+  if (flow_ret == GST_FLOW_FLUSHING)
+    goto flushing;
   if (flow_ret != GST_FLOW_OK)
     goto flow_error;
 
@@ -1508,6 +1551,7 @@ retry:
 
 dequeue_error:
   {
+    GST_ERROR_OBJECT (self, "dec_loop, dequeue_error");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Failed to dequeue output buffer"));
     gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self), gst_event_new_eos ());
@@ -1518,6 +1562,7 @@ dequeue_error:
   }
 get_output_buffers_error:
   {
+    GST_ERROR_OBJECT (self, "dec_loop, get_output_buffers_error");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Failed to get output buffers"));
     gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self), gst_event_new_eos ());
@@ -1528,6 +1573,7 @@ get_output_buffers_error:
   }
 format_error:
   {
+    GST_ERROR_OBJECT (self, "dec_loop, format_error");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Failed to handle format"));
     gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self), gst_event_new_eos ());
@@ -1554,11 +1600,12 @@ flushing:
 flow_error:
   {
     if (flow_ret == GST_FLOW_EOS) {
-      GST_DEBUG_OBJECT (self, "EOS");
+      GST_ERROR_OBJECT (self, "dec_loop, flow_error, EOS");
       gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self),
           gst_event_new_eos ());
       gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
     } else if (flow_ret == GST_FLOW_NOT_LINKED || flow_ret < GST_FLOW_EOS) {
+      GST_ERROR_OBJECT (self, "dec_loop, flow_error, %d", flow_ret);
       GST_ELEMENT_ERROR (self, STREAM, FAILED,
           ("Internal data stream error."), ("stream stopped, reason %s",
               gst_flow_get_name (flow_ret)));
@@ -1571,6 +1618,7 @@ flow_error:
   }
 invalid_buffer:
   {
+    GST_ERROR_OBJECT (self, "dec_loop, invalid_buffer");
     GST_ELEMENT_ERROR (self, LIBRARY, SETTINGS, (NULL),
         ("Invalid sized input buffer"));
     gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self), gst_event_new_eos ());
@@ -1593,6 +1641,7 @@ gst_amc_video_dec_start (GstVideoDecoder * decoder)
   self->downstream_flow_ret = GST_FLOW_OK;
   self->started = FALSE;
   self->flushing = TRUE;
+  self->waiting_segment = FALSE;
 
   return TRUE;
 }
@@ -1869,12 +1918,16 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   while (offset < minfo.size) {
     /* Make sure to release the base class stream lock, otherwise
      * _loop() can't call _finish_frame() and we might block forever
-     * because no input buffers are released */
+     * because no input buffers are released. We also unlock the pad
+     * to reduce chances of dead-locking.
+     */
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+    GST_PAD_STREAM_UNLOCK (GST_VIDEO_DECODER_SINK_PAD (decoder));
     /* Wait at most 100ms here, some codecs don't fail dequeueing if
      * the codec is flushing, causing deadlocks during shutdown */
     idx =
         gst_amc_codec_dequeue_input_buffer (self->codec, wait_buff_us);
+    GST_PAD_STREAM_LOCK (GST_VIDEO_DECODER_SINK_PAD (decoder));
     GST_VIDEO_DECODER_STREAM_LOCK (self);
 
     GST_DEBUG_OBJECT (self, "Tried to dequeue input buffer idx: %d", idx);
@@ -1888,10 +1941,25 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
            * several times gst_amc_codec_dequeue_input_buffer to minimise delay
            * when the element is flushed.
            */
-          if (++num_touts >= max_touts)
-            goto dequeue_error;
-          else
+          if (++num_touts >= max_touts) {
+            num_touts = 0;
+            /* We have been waiting for the segment event after a seek event for
+             * too long. This usually happens because the pipeline is deadlocked
+             * and some event has not been propagated. This event will not move
+             * forward until the streaming thread unlocks all pads in the
+             * pipeline, which will not happen unless we return from this
+             * function. So we force that. The ideal solution would be to change
+             * this element so it complies with gstreamer rules (like properlly
+             * prerolling and avoiding these loops we have to grab hybris
+             * buffers).
+             */
+            if (self->waiting_segment)
+              goto timeout_error;
+            else
+              continue;
+          } else {
             continue;
+          }
         case G_MININT:
           GST_ERROR_OBJECT (self, "Failed to dequeue input buffer");
           goto dequeue_error;
@@ -1975,6 +2043,7 @@ downstream_error:
   }
 invalid_buffer_index:
   {
+    GST_ERROR_OBJECT (self, "handle_frame, invalid_buffer_index");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Invalid input buffer index %d of %d", idx, self->n_input_buffers));
     if (minfo.data)
@@ -1982,8 +2051,18 @@ invalid_buffer_index:
     gst_video_codec_frame_unref (frame);
     return GST_FLOW_ERROR;
   }
+timeout_error:
+  {
+    GST_ERROR_OBJECT (self, "handle_frame, timeout_error");
+    self->waiting_segment = FALSE;
+    if (minfo.data)
+      gst_buffer_unmap (frame->input_buffer, &minfo);
+    gst_video_codec_frame_unref (frame);
+    return GST_FLOW_ERROR;
+  }
 dequeue_error:
   {
+    GST_ERROR_OBJECT (self, "handle_frame, dequeue_error");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Failed to dequeue input buffer"));
     if (minfo.data)
@@ -1993,6 +2072,7 @@ dequeue_error:
   }
 queue_error:
   {
+    GST_ERROR_OBJECT (self, "handle_frame, queue_error");
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Failed to queue input buffer"));
     if (minfo.data)
@@ -2002,7 +2082,7 @@ queue_error:
   }
 flushing:
   {
-    GST_DEBUG_OBJECT (self, "Flushing -- returning FLUSHING");
+    GST_ERROR_OBJECT (self, "Flushing -- returning FLUSHING");
     if (minfo.data)
       gst_buffer_unmap (frame->input_buffer, &minfo);
     gst_video_codec_frame_unref (frame);
