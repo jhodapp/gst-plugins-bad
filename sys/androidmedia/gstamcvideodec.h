@@ -102,6 +102,7 @@ struct _GstAmcVideoDec
   GMutex srccaps_lock;
   GCond srccaps_cond;
   gboolean srccaps_set;
+  gboolean waiting_segment;
 #endif
 };
 
