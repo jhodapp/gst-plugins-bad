@@ -103,6 +103,8 @@ struct _GstAmcVideoDec
   GCond srccaps_cond;
   gboolean srccaps_set;
   gboolean waiting_segment;
+
+  const gchar *mime;
 #endif
 };
 

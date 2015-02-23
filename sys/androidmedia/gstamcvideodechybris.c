@@ -1521,6 +1521,7 @@ gst_amc_video_dec_start (GstVideoDecoder * decoder)
   self->started = FALSE;
   self->flushing = TRUE;
   self->waiting_segment = FALSE;
+  self->mime = NULL;
 
   return TRUE;
 }
@@ -1674,12 +1675,6 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     gst_amc_format_set_buffer (format, "csd-0", self->codec_data,
         self->codec_data_size);
 
-/*
-  format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s", format_string);
-  g_free (format_string);
-*/
-
   /* Configure the hardware codec with format */
   ret = gst_amc_video_dec_configure_self (decoder, format);
   if (!ret) {
@@ -1689,6 +1684,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gst_amc_format_free (format);
   format = NULL;
 
+  self->mime = mime;
   self->started = TRUE;
   self->input_state = gst_video_codec_state_ref (state);
   self->input_state_changed = TRUE;
@@ -1764,6 +1760,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   guint offset = 0;
   GstClockTime timestamp, duration, timestamp_offset = 0;
   GstMapInfo minfo;
+  gboolean first_buff = TRUE;
 
   memset (&minfo, 0, sizeof (minfo));
 
@@ -1868,6 +1865,17 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
      * by the port */
     buf = &self->input_buffers[idx];
 
+    /* If we have an Access Unit Delimiter NALU (6 bytes), we remove it from the
+     * stream, because it is not handled well by MTK's decoder (if there are
+     * PPS/SPS NALUs after it they are ignored), and it is useless anyway. To
+     * detect it we search for type 9 NALU after a start code (0x00000001).
+     */
+    if (g_strcmp0("video/avc", self->mime) == 0 &&
+        minfo.size - offset > 5 &&
+        GST_READ_UINT32_BE (minfo.data + offset) == 0x01 &&
+	(*(minfo.data + offset + 4) & 0x1F) == 9) {
+      offset += 6;
+    }
     memset (&buffer_info, 0, sizeof (buffer_info));
     buffer_info.offset = 0;
     buffer_info.size = MIN (minfo.size - offset, buf->size);
@@ -1876,7 +1884,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
     /* Interpolate timestamps if we're passing the buffer
      * in multiple chunks */
-    if (offset != 0 && duration != GST_CLOCK_TIME_NONE) {
+    if (!first_buff && duration != GST_CLOCK_TIME_NONE) {
       timestamp_offset = gst_util_uint64_scale (offset, duration, minfo.size);
     }
 
@@ -1888,7 +1896,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     if (duration != GST_CLOCK_TIME_NONE)
       self->last_upstream_ts += duration;
 
-    if (offset == 0) {
+    if (first_buff) {
       BufferIdentification *id =
           buffer_identification_new (timestamp + timestamp_offset);
       if (GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame))
@@ -1904,6 +1912,8 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         buffer_info.flags);
     if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
       goto queue_error;
+
+    first_buff = FALSE;
   }
 
   gst_buffer_unmap (frame->input_buffer, &minfo);
