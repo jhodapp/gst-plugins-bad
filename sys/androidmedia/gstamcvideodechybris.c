@@ -53,6 +53,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
 
 #define WAIT_FOR_SRC_CAPS_MS 100
+#define DEC_ALIGNMENT_BYTES 1024
 
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
@@ -223,8 +224,14 @@ get_caps_data (GstCaps * caps, int * buffsize)
 
   name = gst_structure_get_name (s);
 
+  /* Retrieve max input size for frame. If present, increment size to make sure
+   * it fulfills HW access requirements (required by arale decoder).
+   */
   if (!gst_structure_get_int (s, "max-input-size", buffsize))
     *buffsize = 0;
+  else
+    *buffsize = (*buffsize + DEC_ALIGNMENT_BYTES - 1)
+        & ~(DEC_ALIGNMENT_BYTES - 1);
 
   if (strcmp (name, "video/mpeg") == 0) {
     gint mpegversion;
