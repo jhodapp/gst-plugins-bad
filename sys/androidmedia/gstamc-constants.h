@@ -101,7 +101,10 @@ enum
   /* From hardware/ti/omap4xxx/domx/omx_core/inc/OMX_TI_IVCommon.h */
   COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced = 0x7f000001,
   COLOR_EXYNOS_FormatNV12Tiled = 0x7fc00002,
-  COLOR_EXYNOS_FormatNV21Linear = 0x7f000011
+  COLOR_EXYNOS_FormatNV21Linear = 0x7f000011,
+  /* MTK formats. FormatYV12 is used by VP8/9. */
+  COLOR_MTK_FormatYV12 = 0x7f000200,
+  COLOR_MTK_FormatBitStream = 0x7f000300
 };
 
 enum

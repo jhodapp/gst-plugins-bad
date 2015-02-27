@@ -196,12 +196,49 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
       tmp = gst_structure_new_empty ("video/x-vp8");
       ret = gst_caps_merge_structure (ret, tmp);
 
+    } else if (strcmp (type->mime, "video/x-vnd.on2.vp9") == 0) {
+      GstStructure *tmp;
+
+      tmp = gst_structure_new_empty ("video/x-vp9");
+      ret = gst_caps_merge_structure (ret, tmp);
+
     } else if (strcmp (type->mime, "video/mpeg2") == 0) {
       GstStructure *tmp;
 
       tmp = gst_structure_new ("video/mpeg",
           "mpegversion", GST_TYPE_INT_RANGE, 1, 2,
           "systemstream", G_TYPE_BOOLEAN, FALSE, NULL);
+      ret = gst_caps_merge_structure (ret, tmp);
+
+    } else if (strcmp (type->mime, "video/hevc") == 0) {
+      GstStructure *tmp;
+
+      tmp = gst_structure_new ("video/x-h265",
+          "stream-format", G_TYPE_STRING, "byte-stream",
+          "alignment", G_TYPE_STRING, "au", NULL);
+      ret = gst_caps_merge_structure (ret, tmp);
+
+    } else if (strcmp (type->mime, "video/x-ms-wmv") == 0) {
+      GstStructure *tmp;
+      GValue list = { 0 };
+      GValue val = { 0 };
+
+      tmp = gst_structure_new ("video/x-wmv",
+          "wmvversion", G_TYPE_INT, 3, NULL);
+
+      g_value_init (&list, GST_TYPE_LIST);
+      g_value_init (&val, G_TYPE_STRING);
+
+      g_value_set_string (&val, "WVC1");
+      gst_value_list_append_value (&list, &val);
+
+      g_value_set_string (&val,"WMVA");
+      gst_value_list_append_value (&list, &val);
+
+      gst_structure_set_value (tmp, "format", &list);
+      g_value_unset (&val);
+      g_value_unset (&list);
+
       ret = gst_caps_merge_structure (ret, tmp);
 
     } else {
@@ -249,8 +286,14 @@ get_caps_data (GstCaps * caps, int * buffsize)
     return "video/avc";
   } else if (strcmp (name, "video/x-vp8") == 0) {
     return "video/x-vnd.on2.vp8";
+  } else if (strcmp (name, "video/x-vp9") == 0) {
+    return "video/x-vnd.on2.vp9";
   } else if (strcmp (name, "video/x-divx") == 0) {
     return "video/mp4v-es";
+  } else if (strcmp (name, "video/x-h265") == 0) {
+    return "video/hevc";
+  } else if (strcmp (name, "video/x-wmv") == 0) {
+    return "video/x-ms-wmv";
   }
 
   return NULL;
@@ -1750,6 +1793,41 @@ gst_amc_video_dec_flush (GstVideoDecoder * decoder)
   return TRUE;
 }
 
+static unsigned
+skip_forbidden_nalus(const GstAmcVideoDec *self, GstMapInfo *minfo,
+    unsigned offset)
+{
+  /* If we have an Access Unit Delimiter NALU (6 bytes), we remove it from the
+   * stream, because it is not handled well by MTK's decoder (if there are
+   * PPS/SPS NALUs after it they are ignored), and it is useless anyway. To
+   * detect it we search for type 9 NALU after a start code (0x00000001).
+   */
+  if (g_strcmp0("video/avc", self->mime) == 0 &&
+      minfo->size - offset > 5 &&
+      GST_READ_UINT32_BE (minfo->data + offset) == 0x01 &&
+    (*(minfo->data + offset + 4) & 0x1F) == 9) {
+    offset += 6;
+  }
+
+  /* The VPS (Video Parameter Set) nalus introduced in HEVC are not handled by
+   * MTK decoder, we move to the following start code. VPS is not necessary for
+   * the decoding process if there are no extensions (see
+   * https://tools.ietf.org/html/draft-ietf-payload-rtp-h265-07).
+   */
+  if (g_strcmp0("video/hevc", self->mime) == 0 &&
+      GST_READ_UINT32_BE (minfo->data + offset) == 0x01 &&
+      (*(minfo->data + offset + 4) >> 1) == 32) {
+    /* Jump start code and minimum length of VPS */
+    offset += 10;
+    for (; offset + 4 <= minfo->size; ++offset) {
+      if (GST_READ_UINT32_BE (minfo->data + offset) == 0x01)
+        break;
+    }
+  }
+
+  return offset;
+}
+
 static GstFlowReturn
 gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame)
@@ -1797,6 +1875,11 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   duration = frame->duration;
 
   gst_buffer_map (frame->input_buffer, &minfo, GST_MAP_READ);
+
+  /* We assume here that the "forbidden" nalus are always at the beginning of
+   * the frame, which might become false in the end.
+   */
+  offset = skip_forbidden_nalus(self, &minfo, offset);
 
   while (offset < minfo.size) {
     /* Make sure to release the base class stream lock, otherwise
@@ -1872,17 +1955,6 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
      * by the port */
     buf = &self->input_buffers[idx];
 
-    /* If we have an Access Unit Delimiter NALU (6 bytes), we remove it from the
-     * stream, because it is not handled well by MTK's decoder (if there are
-     * PPS/SPS NALUs after it they are ignored), and it is useless anyway. To
-     * detect it we search for type 9 NALU after a start code (0x00000001).
-     */
-    if (g_strcmp0("video/avc", self->mime) == 0 &&
-        minfo.size - offset > 5 &&
-        GST_READ_UINT32_BE (minfo.data + offset) == 0x01 &&
-	(*(minfo.data + offset + 4) & 0x1F) == 9) {
-      offset += 6;
-    }
     memset (&buffer_info, 0, sizeof (buffer_info));
     buffer_info.offset = 0;
     buffer_info.size = MIN (minfo.size - offset, buf->size);
