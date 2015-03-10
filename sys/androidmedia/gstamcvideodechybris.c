@@ -53,7 +53,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
 
 #define WAIT_FOR_SRC_CAPS_MS 100
-#define DEC_ALIGNMENT_BYTES 1024
+#define DEC_ALIGNMENT_BYTES 4096
 
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
