@@ -1186,11 +1186,6 @@ scan_codecs (GstPlugin * plugin)
 
       n_elems = media_codec_list_get_num_profile_levels (i, mime);
       GST_INFO ("Type '%s' has %d supported profile levels", mime, n_elems);
-      if (n_elems == 0) {
-        GST_INFO ("Zero supported profile levels for type '%s'", mime);
-        valid_codec = FALSE;
-        goto next_supported_type;
-      }
       gst_codec_type->n_profile_levels = n_elems;
       gst_codec_type->profile_levels =
           g_malloc0 (sizeof (gst_codec_type->profile_levels[0]) * n_elems);
@@ -1371,7 +1366,8 @@ static const struct
   COLOR_EXYNOS_FormatNV12Tiled, GST_VIDEO_FORMAT_NV12}, {
   COLOR_EXYNOS_FormatNV21Linear, GST_VIDEO_FORMAT_NV21}, {
   256, GST_VIDEO_FORMAT_NV12}, {
-  263, GST_VIDEO_FORMAT_NV12}
+  263, GST_VIDEO_FORMAT_NV12}, {
+  COLOR_MTK_FormatYV12, GST_VIDEO_FORMAT_YV12}
 };
 
 static gboolean
