@@ -178,8 +178,7 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
       GstStructure *tmp;
 
       tmp = gst_structure_new ("video/x-h263",
-          "variant", G_TYPE_STRING, "itu",
-          NULL);
+          "variant", G_TYPE_STRING, "itu", NULL);
       ret = gst_caps_merge_structure (ret, tmp);
 
     } else if (strcmp (type->mime, "video/avc") == 0) {
@@ -232,7 +231,7 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
       g_value_set_string (&val, "WVC1");
       gst_value_list_append_value (&list, &val);
 
-      g_value_set_string (&val,"WMVA");
+      g_value_set_string (&val, "WMVA");
       gst_value_list_append_value (&list, &val);
 
       gst_structure_set_value (tmp, "format", &list);
@@ -250,7 +249,7 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 }
 
 static const gchar *
-get_caps_data (GstCaps * caps, int * buffsize)
+get_caps_data (GstCaps * caps, int *buffsize)
 {
   GstStructure *s;
   const gchar *name;
@@ -477,8 +476,7 @@ gst_amc_video_dec_sink_event (GstPad * pad, GstObject * parent,
 }
 
 static gboolean
-gst_amc_video_dec_src_event (GstPad * pad, GstObject * parent,
-    GstEvent * event)
+gst_amc_video_dec_src_event (GstPad * pad, GstObject * parent, GstEvent * event)
 {
   GstVideoDecoder *decoder;
   GstVideoDecoderClass *decoder_class;
@@ -581,10 +579,10 @@ gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
-      GST_VIDEO_DECODER_STREAM_LOCK(self);
+      GST_VIDEO_DECODER_STREAM_LOCK (self);
       self->flushing = TRUE;
       gst_amc_codec_flush (self->codec);
-      GST_VIDEO_DECODER_STREAM_UNLOCK(self);
+      GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
       g_mutex_lock (&self->drain_lock);
       self->draining = FALSE;
@@ -1028,6 +1026,7 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
         break;
       }
       case COLOR_QCOM_FormatYUV420SemiPlanar:
+      case COLOR_QCOM_FormatYVU420SemiPlanar32m:
       case COLOR_FormatYUV420SemiPlanar:{
         gint i, j, height;
         guint8 *src, *dest;
@@ -1714,7 +1713,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       state->info.width, state->info.height, buffsize);
   format =
       gst_amc_format_new_video (mime, state->info.width, state->info.height,
-          buffsize);
+      buffsize);
   if (!format) {
     GST_ERROR_OBJECT (self, "Failed to create video format");
     return FALSE;
@@ -1794,7 +1793,7 @@ gst_amc_video_dec_flush (GstVideoDecoder * decoder)
 }
 
 static unsigned
-skip_forbidden_nalus(const GstAmcVideoDec *self, GstMapInfo *minfo,
+skip_forbidden_nalus (const GstAmcVideoDec * self, GstMapInfo * minfo,
     unsigned offset)
 {
   /* If we have an Access Unit Delimiter NALU (6 bytes), we remove it from the
@@ -1802,10 +1801,10 @@ skip_forbidden_nalus(const GstAmcVideoDec *self, GstMapInfo *minfo,
    * PPS/SPS NALUs after it they are ignored), and it is useless anyway. To
    * detect it we search for type 9 NALU after a start code (0x00000001).
    */
-  if (g_strcmp0("video/avc", self->mime) == 0 &&
+  if (g_strcmp0 ("video/avc", self->mime) == 0 &&
       minfo->size - offset > 5 &&
       GST_READ_UINT32_BE (minfo->data + offset) == 0x01 &&
-    (*(minfo->data + offset + 4) & 0x1F) == 9) {
+      (*(minfo->data + offset + 4) & 0x1F) == 9) {
     offset += 6;
   }
 
@@ -1814,7 +1813,7 @@ skip_forbidden_nalus(const GstAmcVideoDec *self, GstMapInfo *minfo,
    * the decoding process if there are no extensions (see
    * https://tools.ietf.org/html/draft-ietf-payload-rtp-h265-07).
    */
-  if (g_strcmp0("video/hevc", self->mime) == 0 &&
+  if (g_strcmp0 ("video/hevc", self->mime) == 0 &&
       GST_READ_UINT32_BE (minfo->data + offset) == 0x01 &&
       (*(minfo->data + offset + 4) >> 1) == 32) {
     /* Jump start code and minimum length of VPS */
@@ -1879,7 +1878,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   /* We assume here that the "forbidden" nalus are always at the beginning of
    * the frame, which might become false in the end.
    */
-  offset = skip_forbidden_nalus(self, &minfo, offset);
+  offset = skip_forbidden_nalus (self, &minfo, offset);
 
   while (offset < minfo.size) {
     /* Make sure to release the base class stream lock, otherwise
@@ -1891,8 +1890,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GST_PAD_STREAM_UNLOCK (GST_VIDEO_DECODER_SINK_PAD (decoder));
     /* Wait at most 100ms here, some codecs don't fail dequeueing if
      * the codec is flushing, causing deadlocks during shutdown */
-    idx =
-        gst_amc_codec_dequeue_input_buffer (self->codec, wait_buff_us);
+    idx = gst_amc_codec_dequeue_input_buffer (self->codec, wait_buff_us);
     GST_PAD_STREAM_LOCK (GST_VIDEO_DECODER_SINK_PAD (decoder));
     GST_VIDEO_DECODER_STREAM_LOCK (self);
 
